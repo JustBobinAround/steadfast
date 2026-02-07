@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 zero = {path="../"}
 rand = {path="../rand"}
+uuid = {path="../uuid"}
+db = {path="../db"}

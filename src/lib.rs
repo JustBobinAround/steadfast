@@ -2,7 +2,7 @@
 #![doc = include_str!("../README.md")]
 extern crate self as zero;
 pub mod async_runtime;
-pub mod db;
+// pub mod db;
 pub mod errors;
 pub mod html;
 pub mod http;
@@ -10,6 +10,7 @@ pub mod parsing;
 pub mod serializer;
 pub mod stream_writer;
 pub mod variadics;
+pub use db;
 /// proc macro to wrap main around async executor
 ///
 /// This macro is written pretty badly right now. See the macros workspace for implementation details

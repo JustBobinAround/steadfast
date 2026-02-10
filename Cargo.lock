@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "db"
+version = "0.1.0"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
 name = "macros"
 version = "0.1.0"
 dependencies = [
@@ -17,7 +24,9 @@ version = "0.1.0"
 name = "testing_bin"
 version = "0.1.0"
 dependencies = [
+ "db",
  "rand",
+ "uuid",
  "zero",
 ]
 
@@ -32,6 +41,7 @@ dependencies = [
 name = "zero"
 version = "0.1.0"
 dependencies = [
+ "db",
  "macros",
  "uuid",
 ]

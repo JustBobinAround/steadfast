@@ -1,6 +1,7 @@
 use rand::Random;
 use std::{cmp::Ordering, str::FromStr};
 
+#[repr(C)]
 #[derive(Clone, Debug, Hash)]
 pub struct UUID {
     pub data_1: u32,
@@ -48,6 +49,24 @@ impl UUID {
             data_2,
             data_3,
             data_4,
+        }
+    }
+
+    pub fn as_u128(&self) -> u128 {
+        let data_1 = (self.data_1 as u128) << 96;
+        let data_2 = (self.data_2 as u128) << 80;
+        let data_3 = (self.data_3 as u128) << 64;
+        let data_4 = <u64>::from_le_bytes(self.data_4) as u128;
+
+        data_1 | data_2 | data_3 | data_4
+    }
+
+    pub fn from_u128(n: u128) -> Self {
+        UUID {
+            data_1: (n >> 96) as u32,
+            data_2: (n >> 80) as u16,
+            data_3: (n >> 64) as u16,
+            data_4: (n as u64).to_le_bytes(),
         }
     }
 
@@ -109,7 +128,7 @@ impl UUID {
     /// See RFC 9562, section 5.7
     ///
     /// ```text
-    ///  0                   1                   2                   3
+    ///  0 a                 1                   2                   3
     ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
     /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
     /// |                           unix_ts_ms                          |
@@ -128,9 +147,9 @@ impl UUID {
         let version: u16 = 0x7 << 12;
         let data_3 = version | rand_a;
 
-        let mut data_4 = <[u8; 8]>::rand().map_err(|_| ())?;
-        data_4[0] = 1;
-        data_4[1] = 0;
+        let data_4 = <[u8; 8]>::rand().map_err(|_| ())?;
+        // data_4[0] = 1;
+        // data_4[1] = 0;
 
         Ok(UUID {
             data_1: 0,

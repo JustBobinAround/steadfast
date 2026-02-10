@@ -79,7 +79,7 @@
 fn main() -> Result<(), ()> {
     let mut am = db::page_table::AddressMap::new("testing.db")?;
     println!("init");
-    eprintln!("{:#?}", am.insert_allocation(64)?);
-    eprintln!("{:#?}", am.insert_allocation(64)?);
+    am.insert_allocation(64);
+    am.insert_allocation(64);
     Ok(())
 }

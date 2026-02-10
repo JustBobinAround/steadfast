@@ -5,8 +5,9 @@ edition = "2024"
 
 [workspace]
 resolver = "3"
-members = ["macros", "rand", "testing_bin", "uuid"]
+members = ["db","macros", "rand", "testing_bin", "uuid"]
 
 [dependencies]
 macros = {path="./macros"}
 uuid = {path="./uuid"}
+db = {path="./db"}

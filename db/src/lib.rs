@@ -11,6 +11,26 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+/// Helper macro that will release file lock before handling inner result
+macro_rules! lock_shared {
+    ($to_lock: expr => $block:block) => {{
+        $to_lock.lock_shared().map_err(|_| ())?;
+        let res = $block;
+        $to_lock.unlock().map_err(|_| ())?;
+        res
+    }};
+}
+
+/// Helper macro that will release file lock before handling inner result
+macro_rules! lock {
+    ($to_lock: expr => $block:block) => {{
+        $to_lock.lock().map_err(|_| ())?;
+        let res = $block;
+        $to_lock.unlock().map_err(|_| ())?;
+        res
+    }};
+}
+
 pub enum UpdateOp {
     Resize { to: usize },
     WriteBytes { at: usize, data: Vec<u8> },
@@ -69,6 +89,12 @@ pub struct DatabaseBuffer {
 }
 
 impl DatabaseBuffer {
+    pub const FILE_TYPE_OFFSET: usize = 0;
+    pub const FILE_VERSION_OFFSET: usize = 8;
+    pub const MOD_COUNT_OFFSET: usize = 16;
+    pub const TOTAL_USED_OFFSET: usize = 24;
+    pub const ENTRY_ALLOC_OFFSET: usize = 32;
+
     pub fn new(path: &str) -> Result<Self, ()> {
         let db_path = Path::new(path);
         let wal_path = db_path.with_extension("zero_wal");
@@ -105,8 +131,6 @@ impl DatabaseBuffer {
         db.read_total_used()?;
         db.read_entry_alloc()?;
 
-        // eprintln!("{:#?}", db);
-
         Ok(db)
     }
 
@@ -136,14 +160,10 @@ impl DatabaseBuffer {
         let end = start + self.address_entries_page_size();
         page_num >= start && page_num < end
     }
+
     pub fn is_header_page(&self, page_num: usize) -> bool {
         page_num == 0
     }
-    pub const FILE_TYPE_OFFSET: usize = 0;
-    pub const FILE_VERSION_OFFSET: usize = 8;
-    pub const MOD_COUNT_OFFSET: usize = 16;
-    pub const TOTAL_USED_OFFSET: usize = 24;
-    pub const ENTRY_ALLOC_OFFSET: usize = 32;
 
     pub fn address_map_bound(&self) -> usize {
         4096 + self.address_entries_byte_size()
@@ -174,6 +194,25 @@ impl DatabaseBuffer {
         Ok((commit, ledger_version))
     }
 
+    /// Iterates over a set of pages when given a start and end address.
+    ///
+    /// The first and last page will be truncated to the byte that matches
+    /// the start and end address.
+    ///
+    /// Pages are synced with a 4MB buffer. If a page does not exist in the buffer,
+    /// the page data is pulled from the db_file.
+    ///
+    /// # Safety
+    ///
+    /// This method assumes the db file has already been aquired in at least a
+    /// shared lock.
+    ///
+    /// This method assumes the wal file has already been aquired in at least a
+    /// shared lock.
+    ///
+    /// This method assumes the 4MB page buffer has already been synced with the wal
+    /// files latest updates, i.e. `self.sync_wal()` has been called before this
+    /// method is used.
     pub fn page_iter<
         F: FnMut(&mut Self, Arc<RwLock<Page>>, usize, usize, usize) -> Result<(), ()>,
     >(
@@ -217,61 +256,67 @@ impl DatabaseBuffer {
         Ok(())
     }
 
+    /// Pull latest updates from wal file into 4MB cache.
+    ///
+    /// # Safety
+    ///
+    /// This method assumes the wal file has already been aquired in at least a
+    /// shared lock.
     pub fn sync_wal(&mut self) -> Result<(), ()> {
-        self.db_file.lock_shared().map_err(|_| ())?;
-        let (commit, version) = self.wal_file_version()?;
+        lock_shared!(self.db_file => {
+            let (commit, version) = self.wal_file_version()?;
 
-        if commit > self.commit {
-            self.commit = commit;
-            self.ledger_version = 0;
-            self.wal_file.seek(SeekFrom::Start(16)).map_err(|_| ())?;
-            self.page_buf.clear();
-        }
-
-        let start_v = self.ledger_version + 1;
-        for _ in start_v..version {
-            let mut buf = [0u8; 16];
-            let bytes_read = self.wal_file.read(&mut buf).map_err(|_| ())?;
-            if bytes_read != buf.len() {
-                return Err(());
+            if commit > self.commit {
+                self.commit = commit;
+                self.ledger_version = 0;
+                self.wal_file.seek(SeekFrom::Start(16)).map_err(|_| ())?;
+                self.page_buf.clear();
             }
 
-            // TODO: const range trait stuff
-            let address_b =
-                <[u8; 8]>::try_from(&buf[0..8]).expect("guarenteed 0..8 slice failed to convert");
-            let size_b =
-                <[u8; 8]>::try_from(&buf[8..16]).expect("guarenteed 8..16 slice failed to convert");
+            let start_v = self.ledger_version + 1;
+            for _ in start_v..version {
+                let mut buf = [0u8; 16];
+                let bytes_read = self.wal_file.read(&mut buf).map_err(|_| ())?;
+                if bytes_read != buf.len() {
+                    return Err(());
+                }
 
-            let start_address = <usize>::from_le_bytes(address_b);
+                // TODO: const range trait stuff
+                let address_b =
+                    <[u8; 8]>::try_from(&buf[0..8]).expect("guarenteed 0..8 slice failed to convert");
+                let size_b =
+                    <[u8; 8]>::try_from(&buf[8..16]).expect("guarenteed 8..16 slice failed to convert");
 
-            let size = <usize>::from_le_bytes(size_b);
-            let end_address = start_address + size;
+                let start_address = <usize>::from_le_bytes(address_b);
 
-            self.page_iter(
-                start_address,
-                end_address,
-                |this, page, page_num, start_offset, end_offset| {
-                    page.write()
-                        .ok()
-                        .map(|mut page| {
-                            if !this.handle_special_pages(
-                                page_num,
-                                &page,
-                                start_offset,
-                                end_offset,
-                            )? {
-                                this.wal_file
-                                    .read(&mut page[start_offset..end_offset])
-                                    .map_err(|_| ())?;
-                            }
-                            Ok(())
-                        })
-                        .unwrap_or(Err(()))
-                },
-            )?;
-        }
-        self.ledger_version = version;
-        self.db_file.unlock().map_err(|_| ())?;
+                let size = <usize>::from_le_bytes(size_b);
+                let end_address = start_address + size;
+
+                self.page_iter(
+                    start_address,
+                    end_address,
+                    |this, page, page_num, start_offset, end_offset| {
+                        page.write()
+                            .ok()
+                            .map(|mut page| {
+                                if !this.handle_special_pages(
+                                    page_num,
+                                    &page,
+                                    start_offset,
+                                    end_offset,
+                                )? {
+                                    this.wal_file
+                                        .read(&mut page[start_offset..end_offset])
+                                        .map_err(|_| ())?;
+                                }
+                                Ok(())
+                            })
+                            .unwrap_or(Err(()))
+                    },
+                )?;
+            }
+            self.ledger_version = version;
+        });
 
         Ok(())
     }
@@ -315,7 +360,6 @@ impl DatabaseBuffer {
             if tmp_size == 0 { 128 } else { tmp_size }
         };
 
-        eprintln!("size: {}", size);
         let mut new_entries = Vec::with_capacity(size);
         new_entries.resize_with(size, || AddressEntry::default());
         std::mem::swap(&mut self.address_map_entries, &mut new_entries);
@@ -359,62 +403,186 @@ impl DatabaseBuffer {
         Ok(is_entry)
     }
 
+    /// This will forces an address range to be cached into 4MB cache
     pub fn cache_sectors(&mut self, address_range: std::ops::Range<usize>) -> Result<(), ()> {
-        self.wal_file.lock_shared().map_err(|_| ())?;
-        self.sync_wal()?;
-        self.db_file.lock_shared().map_err(|_| ())?;
-
-        // This will force the page range into the cache
-        self.page_iter(
-            address_range.start,
-            address_range.end,
-            |this, page, page_num, start_offset, end_offset| {
-                page.read()
-                    .ok()
-                    .map(|page| {
-                        this.handle_special_pages(page_num, &*page, start_offset, end_offset)?;
-                        Ok(())
-                    })
-                    .unwrap_or(Err(()))
-            },
-        )?;
-
-        self.db_file.unlock().map_err(|_| ())?;
-        self.wal_file.unlock().map_err(|_| ())
+        lock_shared!(self.wal_file => {
+            self.sync_wal()?;
+            lock_shared!(self.db_file => {
+                // This will force the page range into the cache
+                self.page_iter(
+                    address_range.start,
+                    address_range.end,
+                    |this, page, page_num, start_offset, end_offset| {
+                        page.read()
+                            .ok()
+                            .map(|page| {
+                                this.handle_special_pages(page_num, &*page, start_offset, end_offset)?;
+                                Ok(())
+                            })
+                            .unwrap_or(Err(()))
+                    },
+                )
+            })
+        })
     }
 
+    /// Syncs requested address span with db and cache. Then copies bytes to provided buffer
     pub fn read_at(&mut self, buf: &mut [u8], start_address: usize) -> Result<usize, ()> {
         if self.page_buf.len() > 700 {
             self.page_buf.clear();
         }
-        self.wal_file.lock_shared().map_err(|_| ())?;
-        self.sync_wal()?;
-        self.db_file.lock_shared().map_err(|_| ())?;
+        let buf_idx = lock_shared!(self.wal_file => {
+            self.sync_wal()?;
+            lock_shared!(self.db_file => {
+                let end_address = start_address + buf.len();
 
-        let end_address = start_address + buf.len();
+                let mut buf_idx = 0;
+                self.page_iter(
+                    start_address,
+                    end_address,
+                    |this, page, page_num, start_offset, end_offset| {
+                        page.read()
+                            .ok()
+                            .map(|page| {
+                                this.handle_special_pages(page_num, &page, start_offset, end_offset)?;
+                                for b in page[start_offset..end_offset].iter() {
+                                    buf[buf_idx] = *b;
+                                    buf_idx += 1;
+                                }
+                                Ok(())
+                            })
+                            .unwrap_or(Err(()))
+                    },
+                )?;
 
-        let mut buf_idx = 0;
-        self.page_iter(
-            start_address,
-            end_address,
-            |this, page, page_num, start_offset, end_offset| {
-                page.read()
-                    .ok()
-                    .map(|page| {
-                        this.handle_special_pages(page_num, &page, start_offset, end_offset)?;
-                        for b in page[start_offset..end_offset].iter() {
-                            buf[buf_idx] = *b;
-                            buf_idx += 1;
-                        }
-                        Ok(())
-                    })
-                    .unwrap_or(Err(()))
-            },
-        )?;
-
-        self.db_file.unlock().map_err(|_| ())?;
-        self.wal_file.unlock().map_err(|_| ())?;
+                buf_idx
+            })
+        });
         Ok(buf_idx)
+    }
+
+    pub fn write_wal_data(&mut self, address: &usize, buf: &[u8]) -> Result<(), ()> {
+        self.ledger_version += 1;
+        self.wal_file
+            .write(&address.to_le_bytes())
+            .map_err(|_| ())?;
+        self.wal_file
+            .write(&buf.len().to_le_bytes())
+            .map_err(|_| ())?;
+        self.wal_file.write(&buf).map_err(|_| ())?;
+
+        Ok(())
+    }
+
+    pub fn write_ledger_version(&mut self) -> Result<(), ()> {
+        self.wal_file
+            .write_at(&self.ledger_version.to_le_bytes(), 8)
+            .map_err(|_| ())?;
+        Ok(())
+    }
+
+    // Resets commit and ledger version to 0 both in memory and disk
+    //
+    // # SAFTEY
+    ///
+    /// This method assumes the wal file has already been aquired in a
+    /// full lock for writing.
+    pub fn clear_commit(&mut self) -> Result<(), ()> {
+        self.commit = 0;
+        self.ledger_version = 0;
+
+        self.wal_file.set_len(16).map_err(|_| ())?;
+        self.wal_file.seek(SeekFrom::Start(0)).map_err(|_| ())?;
+        self.wal_file
+            .write(&self.commit.to_le_bytes())
+            .map_err(|_| ())?;
+        self.wal_file
+            .write(&self.ledger_version.to_le_bytes())
+            .map_err(|_| ())?;
+        Ok(())
+    }
+
+    // Writes all changes in current wal file commit to db file if ledger has more than 100 entries.
+    //
+    // The 100 entries limit will be subject to change after performance reviews.
+    //
+    // # SAFTEY
+    ///
+    /// This method assumes the wal file has already been aquired in a
+    /// full lock for writing.
+    ///
+    /// If triggered, the db file will be aquired with a full lock for writing.
+    pub fn maybe_flush_wal(&mut self) -> Result<(), ()> {
+        if self.ledger_version > 100 {
+            self.flush_wal()?;
+        }
+
+        Ok(())
+    }
+
+    pub fn move_data_with<const N: usize>(
+        &mut self,
+        from_address: usize,
+        to_address: usize,
+        default: [u8; N],
+    ) -> Result<(), ()> {
+        let mut buf = [0u8; N];
+        if self.page_buf.len() > 700 {
+            self.page_buf.clear();
+        }
+        lock!(self.wal_file => {
+            self.sync_wal()?;
+            lock_shared!(self.db_file => {
+                let end_address = from_address + N;
+
+                let mut buf_idx = 0;
+                self.page_iter(
+                    from_address,
+                    end_address,
+                    |this, page, page_num, start_offset, end_offset| {
+                        page.write()
+                            .ok()
+                            .map(|mut page| {
+                                for b in page[start_offset..end_offset].iter_mut() {
+                                    buf[buf_idx] = *b;
+                                    *b = default[buf_idx];
+                                    buf_idx += 1;
+                                }
+                                this.handle_special_pages(page_num, &page, start_offset, end_offset)?;
+                                Ok(())
+                            })
+                            .unwrap_or(Err(()))
+                    },
+                )?;
+
+                let end_address = to_address + N;
+                buf_idx = 0;
+                self.page_iter(
+                    to_address,
+                    end_address,
+                    |this, page, page_num, start_offset, end_offset| {
+                        page.write()
+                            .ok()
+                            .map(|mut page| {
+                                for b in page[start_offset..end_offset].iter_mut() {
+                                    *b = buf[buf_idx];
+                                    buf_idx += 1;
+                                }
+                                this.handle_special_pages(page_num, &page, start_offset, end_offset)?;
+                                Ok(())
+                            })
+                            .unwrap_or(Err(()))
+                    },
+                )?;
+            });
+
+            self.write_wal_data(&to_address, &buf)?;
+            self.write_wal_data(&from_address, &default)?;
+            self.write_ledger_version()?;
+            self.maybe_flush_wal()?;
+        });
+
+        Ok(())
     }
 
     pub fn move_data(
@@ -427,122 +595,45 @@ impl DatabaseBuffer {
         if self.page_buf.len() > 700 {
             self.page_buf.clear();
         }
-        self.wal_file.lock().map_err(|_| ())?;
-        self.sync_wal()?;
-        self.db_file.lock_shared().map_err(|_| ())?;
+        lock!(self.wal_file => {
+            self.sync_wal()?;
+            lock_shared!(self.db_file => {
+                let end_address = from_address + buf.len();
 
-        let end_address = from_address + buf.len();
+                let mut buf_idx = 0;
+                self.page_iter(
+                    from_address,
+                    end_address,
+                    |_, page, _, start_offset, end_offset| {
+                        page.read()
+                            .ok()
+                            .map(|page| {
+                                for b in page[start_offset..end_offset].iter() {
+                                    buf[buf_idx] = *b;
+                                    buf_idx += 1;
+                                }
+                                Ok(())
+                            })
+                            .unwrap_or(Err(()))
+                    },
+                )?;
 
-        let mut buf_idx = 0;
-        self.page_iter(
-            from_address,
-            end_address,
-            |_, page, _, start_offset, end_offset| {
-                page.read()
-                    .ok()
-                    .map(|page| {
-                        for b in page[start_offset..end_offset].iter() {
-                            buf[buf_idx] = *b;
-                            buf_idx += 1;
-                        }
-                        Ok(())
-                    })
-                    .unwrap_or(Err(()))
-            },
-        )?;
-
-        self.db_file.unlock().map_err(|_| ())?;
-        self.ledger_version += 1;
-        self.wal_file
-            .write_at(&self.ledger_version.to_le_bytes(), 8)
-            .map_err(|_| ())?;
-        self.wal_file
-            .write(&to_address.to_le_bytes())
-            .map_err(|_| ())?;
-        self.wal_file
-            .write(&buf.len().to_le_bytes())
-            .map_err(|_| ())?;
-        self.wal_file.write(&buf).map_err(|_| ())?;
-
-        self.ledger_version += 1;
-        let buf = vec![0u8; size]; // TODO, there is a better way to do this part
-
-        self.wal_file
-            .write(&to_address.to_le_bytes())
-            .map_err(|_| ())?;
-        self.wal_file
-            .write(&buf.len().to_le_bytes())
-            .map_err(|_| ())?;
-        self.wal_file.write(&buf).map_err(|_| ())?;
-
-        if self.ledger_version > 100 {
-            self.flush_wal()?;
-        }
-
-        self.wal_file.unlock().map_err(|_| ())
+            });
+            self.write_wal_data(&to_address, &buf)?;
+            self.write_wal_data(&from_address, &vec![0u8; size])?;
+            self.write_ledger_version()?;
+            self.maybe_flush_wal()?;
+        });
+        Ok(())
     }
 
     pub fn write_at(&mut self, buf: &[u8], start_address: usize) -> Result<(), ()> {
-        self.wal_file.lock().map_err(|_| ())?;
-        self.sync_wal()?;
-        self.ledger_version += 1;
-        self.wal_file
-            .write_at(&self.ledger_version.to_le_bytes(), 8)
-            .map_err(|_| ())?;
-        self.wal_file
-            .write(&start_address.to_le_bytes())
-            .map_err(|_| ())?;
-        self.wal_file
-            .write(&buf.len().to_le_bytes())
-            .map_err(|_| ())?;
-        self.wal_file.write(buf).map_err(|_| ())?;
+        lock!(self.wal_file => {
+            self.sync_wal()?;
+            self.write_wal_data(&start_address, &buf)?;
+            self.write_ledger_version()?;
 
-        let size = buf.len();
-        let end_address = start_address + size;
-
-        self.page_iter(
-            start_address,
-            end_address,
-            |this, page, page_num, start_offset, end_offset| {
-                page.write()
-                    .ok()
-                    .map(|mut page| {
-                        let mut buf_idx = 0;
-                        for idx in start_offset..end_offset {
-                            page[idx] = buf[buf_idx];
-                            buf_idx += 1;
-                        }
-                        this.handle_special_pages(page_num, &page, start_offset, end_offset)?;
-                        Ok(())
-                    })
-                    .unwrap_or(Err(()))
-            },
-        )?;
-
-        if self.ledger_version > 100 {
-            self.flush_wal()?;
-        }
-        self.wal_file.unlock().map_err(|_| ())
-    }
-
-    pub fn flush_wal(&mut self) -> Result<(), ()> {
-        self.db_file.lock().map_err(|_| ())?;
-        self.wal_file.seek(SeekFrom::Start(16)).map_err(|_| ())?;
-        for _ in 0..self.ledger_version {
-            let mut buf = [0u8; 16];
-            let bytes_read = self.wal_file.read(&mut buf).map_err(|_| ())?;
-            if bytes_read != buf.len() {
-                return Err(());
-            }
-
-            // TODO: const range trait stuff
-            let address_b =
-                <[u8; 8]>::try_from(&buf[0..8]).expect("guarenteed 0..8 slice failed to convert");
-            let size_b =
-                <[u8; 8]>::try_from(&buf[8..16]).expect("guarenteed 8..16 slice failed to convert");
-
-            let start_address = <usize>::from_le_bytes(address_b);
-            let size = <usize>::from_le_bytes(size_b);
+            let size = buf.len();
             let end_address = start_address + size;
 
             self.page_iter(
@@ -552,90 +643,71 @@ impl DatabaseBuffer {
                     page.write()
                         .ok()
                         .map(|mut page| {
-                            this.wal_file
-                                .read(&mut page[start_offset..end_offset])
-                                .map_err(|_| ())?;
-                            let phys_addr = (page_num << 12) + start_offset;
-                            this.db_file
-                                .write_at(&mut page[start_offset..end_offset], phys_addr as u64)
-                                .map_err(|_| ())?;
+                            let mut buf_idx = 0;
+                            for idx in start_offset..end_offset {
+                                page[idx] = buf[buf_idx];
+                                buf_idx += 1;
+                            }
+                            this.handle_special_pages(page_num, &page, start_offset, end_offset)?;
                             Ok(())
                         })
                         .unwrap_or(Err(()))
                 },
             )?;
-        }
-        self.commit = 0;
-        self.ledger_version = 0;
 
-        self.wal_file.set_len(16).map_err(|_| ())?;
-        self.wal_file.seek(SeekFrom::Start(0)).map_err(|_| ())?;
-        self.wal_file
-            .write(&self.commit.to_le_bytes())
-            .map_err(|_| ())?;
-        self.wal_file
-            .write(&self.ledger_version.to_le_bytes())
-            .map_err(|_| ())?;
-
-        self.db_file.unlock().map_err(|_| ())
-    }
-}
-
-pub struct FileRW {
-    file: Arc<RwLock<File>>,
-}
-
-impl FileRW {
-    pub fn new(path: &Path) -> Result<Self, ()> {
-        let file = OpenOptions::new()
-            .write(true)
-            .read(true)
-            .create(true)
-            .open(path)
-            .map_err(|_| ())?;
-        file.unlock().map_err(|_| ())?;
-
-        let file = Arc::new(RwLock::new(file));
-        Ok(FileRW { file })
+            self.maybe_flush_wal()
+        })
     }
 
-    pub fn aquire(&self) -> Arc<RwLock<File>> {
-        self.file.clone()
-    }
+    // Writes all changes in current wal file commit to db file.
+    //
+    // # SAFTEY
+    ///
+    /// This method assumes the wal file has already been aquired in a
+    /// full lock for writing.
+    ///
+    /// The db file will be aquired with a full lock for writing.
+    pub fn flush_wal(&mut self) -> Result<(), ()> {
+        lock!(self.db_file => {
+            self.wal_file.seek(SeekFrom::Start(16)).map_err(|_| ())?;
+            for _ in 0..self.ledger_version {
+                let mut buf = [0u8; 16];
+                let bytes_read = self.wal_file.read(&mut buf).map_err(|_| ())?;
+                if bytes_read != buf.len() {
+                    return Err(());
+                }
 
-    pub fn read<T, F: FnMut(&File) -> Result<T, ()>>(&self, mut f: F) -> Result<T, ()> {
-        match self.file.read() {
-            Ok(file) => {
-                file.lock_shared().map_err(|_| ())?;
-                let t = f(&file); // handle errs after release of file
-                file.unlock().map_err(|_| ())?;
-                Ok(t?)
+                // TODO: const range trait stuff
+                let address_b =
+                    <[u8; 8]>::try_from(&buf[0..8]).expect("guarenteed 0..8 slice failed to convert");
+                let size_b =
+                    <[u8; 8]>::try_from(&buf[8..16]).expect("guarenteed 8..16 slice failed to convert");
+
+                let start_address = <usize>::from_le_bytes(address_b);
+                let size = <usize>::from_le_bytes(size_b);
+                let end_address = start_address + size;
+
+                self.page_iter(
+                    start_address,
+                    end_address,
+                    |this, page, page_num, start_offset, end_offset| {
+                        page.write()
+                            .ok()
+                            .map(|mut page| {
+                                this.wal_file
+                                    .read(&mut page[start_offset..end_offset])
+                                    .map_err(|_| ())?;
+                                let phys_addr = (page_num << 12) + start_offset;
+                                this.db_file
+                                    .write_at(&mut page[start_offset..end_offset], phys_addr as u64)
+                                    .map_err(|_| ())?;
+                                Ok(())
+                            })
+                            .unwrap_or(Err(()))
+                    },
+                )?;
             }
-            Err(_) => Err(()),
-        }
-    }
-
-    pub fn read_mut<T, F: FnMut(&mut File) -> Result<T, ()>>(&self, mut f: F) -> Result<T, ()> {
-        match self.file.write() {
-            Ok(mut file) => {
-                file.lock_shared().map_err(|_| ())?;
-                let t = f(&mut file);
-                file.unlock().map_err(|_| ())?;
-                Ok(t?)
-            }
-            Err(_) => Err(()),
-        }
-    }
-
-    pub fn write_mut<T, F: FnMut(&mut File) -> Result<T, ()>>(&self, mut f: F) -> Result<T, ()> {
-        match self.file.write() {
-            Ok(mut file) => {
-                file.lock().map_err(|_| ())?;
-                let t = f(&mut file);
-                file.unlock().map_err(|_| ())?;
-                Ok(t?)
-            }
-            Err(_) => Err(()),
-        }
+            self.clear_commit()
+        })
     }
 }

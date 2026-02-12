@@ -7,27 +7,27 @@ use uuid::UUID;
 pub type Address = usize;
 pub type MemSize = usize;
 
-#[derive(Debug)]
-pub enum AddressMapOp<'a> {
-    Resized {
-        size: usize,
-        entry: &'a AddressEntry,
-    },
-    Inserted(&'a AddressEntry),
-    Remove(AddressEntry),
-    None,
-}
-
 #[repr(C)]
 #[derive(Clone, Debug)]
 pub struct AddressEntry {
-    uuid: UUID,
-    address: Address,
-    size: MemSize,
+    pub uuid: UUID,
+    pub address: Address,
+    pub size: MemSize,
 }
 
 impl AddressEntry {
     pub const BYTE_SIZE: usize = 32;
+
+    pub fn dealloc_entry(&self) -> Self {
+        let mut uuid = self.uuid.clone();
+        uuid.data_1 = 0;
+
+        AddressEntry {
+            uuid,
+            address: self.address,
+            size: self.size,
+        }
+    }
 
     pub fn to_bytes(&self) -> [u8; 32] {
         self.uuid
@@ -82,6 +82,7 @@ impl Default for AddressEntry {
     }
 }
 
+#[derive(Debug)]
 pub struct AddressMap {
     // db.as_ref().unwrap().address_map_entries: Vec<AddressEntry>,
     db: DatabaseBuffer,
@@ -167,11 +168,9 @@ impl AddressMap {
         }
     }
 
-    fn insert_entry(&mut self, entry: AddressEntry) -> Result<AddressMapOp<'_>, ()> {
+    fn insert_entry(&mut self, entry: AddressEntry) -> Result<&AddressEntry, ()> {
         self.db.sync_address_map()?;
-        let mut resized = false;
         if self.reserved_count > self.db.address_map_entries.capacity() / 2 {
-            resized = true;
             self.resize()?;
         }
         let mut idx = self.uuid_idx(&entry.uuid);
@@ -179,7 +178,6 @@ impl AddressMap {
             if self.has_collision(idx) {
                 idx += 1;
                 if idx >= self.db.address_map_entries.capacity() {
-                    resized = true;
                     self.resize()?;
                     idx = self.uuid_idx(&entry.uuid);
                 }
@@ -195,17 +193,10 @@ impl AddressMap {
         // self.db.as_ref().unwrap().address_map_entries[idx] = entry; // db write will update this
         self.reserved_count += 1;
 
-        Ok(if resized {
-            AddressMapOp::Resized {
-                size: self.db.address_map_entries.capacity(),
-                entry: &self.db.address_map_entries[idx],
-            }
-        } else {
-            AddressMapOp::Inserted(&self.db.address_map_entries[idx])
-        })
+        Ok(&self.db.address_map_entries[idx])
     }
 
-    pub fn insert_allocation(&mut self, size: usize) -> Result<AddressMapOp<'_>, ()> {
+    pub fn insert_allocation(&mut self, size: usize) -> Result<&AddressEntry, ()> {
         let address = self.freed_ranges.remove(&size).unwrap_or({
             let address = self.db.total_used;
             self.db.set_total_used(address + size)?;
@@ -264,12 +255,12 @@ impl AddressMap {
         }
     }
 
-    pub fn remove(&mut self, uuid: &UUID) -> Result<AddressMapOp<'_>, ()> {
+    pub fn remove_allocation(&mut self, uuid: &UUID) -> Result<Option<AddressEntry>, ()> {
         self.db.sync_address_map()?;
         let mut idx = self.uuid_idx(uuid);
         let org_idx = idx;
         if idx >= self.db.address_map_entries.len() {
-            Ok(AddressMapOp::None)
+            Ok(None)
         } else {
             let mut found_entry = None;
             while idx < self.db.address_map_entries.len() {
@@ -294,13 +285,18 @@ impl AddressMap {
                     sec_idx += 1;
                 }
                 sec_idx -= 1;
-                let mut default = AddressEntry::default();
+                let mut default = self.db.address_map_entries[idx].dealloc_entry();
+                let from_offset = Self::PADDING + (idx * AddressEntry::BYTE_SIZE);
+                let to_offset = Self::PADDING + (sec_idx * AddressEntry::BYTE_SIZE);
+                self.db
+                    .move_data_with(to_offset, from_offset, default.to_bytes())?;
+
                 self.db.address_map_entries.swap(idx, sec_idx);
                 std::mem::swap(&mut self.db.address_map_entries[sec_idx], &mut default);
                 self.freed_ranges.insert(default.size, default.address);
-                Ok(AddressMapOp::Remove(default))
+                Ok(Some(default))
             } else {
-                Ok(AddressMapOp::None)
+                Ok(None)
             }
         }
     }

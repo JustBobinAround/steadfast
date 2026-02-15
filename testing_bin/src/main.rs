@@ -79,9 +79,13 @@
 fn main() -> Result<(), ()> {
     let mut am = db::page_table::AddressMap::new("testing.db")?;
     let entry = am.insert_allocation(64).expect("entry").clone();
+    eprintln!("{:#?}", entry);
+    eprintln!("=====================================");
     // eprintln!("{:#?}", am);
-    eprintln!("{:#?}", am.get(&entry.uuid));
     eprintln!("{:#?}", am.remove_allocation(&entry.uuid));
+    eprintln!("=====================================");
     eprintln!("{:#?}", am.get(&entry.uuid));
+    eprintln!("=====================================");
+    // eprintln!("{:#?}", am);
     Ok(())
 }

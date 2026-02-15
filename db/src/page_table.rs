@@ -29,6 +29,10 @@ impl AddressEntry {
         }
     }
 
+    pub fn is_deallocated(&self) -> bool {
+        self.uuid.data_1 == 0
+    }
+
     pub fn to_bytes(&self) -> [u8; 32] {
         self.uuid
             .as_u128()
@@ -86,7 +90,6 @@ impl Default for AddressEntry {
 pub struct AddressMap {
     // db.as_ref().unwrap().address_map_entries: Vec<AddressEntry>,
     db: DatabaseBuffer,
-    freed_ranges: BTreeMap<MemSize, Address>,
     reserved_count: usize,
 }
 
@@ -117,7 +120,6 @@ impl AddressMap {
 
         Ok(AddressMap {
             db,
-            freed_ranges: BTreeMap::new(),
             reserved_count: 0,
         })
     }
@@ -139,7 +141,7 @@ impl AddressMap {
         //     - ((self.db.address_map_entries.capacity() * AddressEntry::BYTE_SIZE) + Self::PADDING);
         // let db = self.db;
         let mut old_entries = self.db.resize_entry_alloc()?;
-        self.freed_ranges = BTreeMap::new();
+        self.db.freed_ranges = BTreeMap::new();
         let mut total_used = (old_entries.capacity() * 2 * AddressEntry::BYTE_SIZE) + Self::PADDING;
         self.db.set_total_used(total_used)?;
         self.reserved_count = 0;
@@ -197,11 +199,17 @@ impl AddressMap {
     }
 
     pub fn insert_allocation(&mut self, size: usize) -> Result<&AddressEntry, ()> {
-        let address = self.freed_ranges.remove(&size).unwrap_or({
+        self.db.sync_address_map()?;
+        let address = self.db.freed_ranges.range(size..).next();
+        eprintln!(">><{:#?}", address);
+
+        let address = address.map(|entry| *entry.1).unwrap_or({
             let address = self.db.total_used;
+            eprintln!("{}", address);
             self.db.set_total_used(address + size)?;
             address
         });
+        eprintln!(">>{:#?}", address);
 
         let mut attempts = 0;
         let uuid = loop {
@@ -241,7 +249,7 @@ impl AddressMap {
         } else {
             let mut found_entry = None;
             while idx < self.db.address_map_entries.len() {
-                if self.db.address_map_entries[idx].uuid.data_1 == 0 {
+                if self.db.address_map_entries[idx].is_deallocated() {
                     break;
                 }
                 if &self.db.address_map_entries[idx].uuid == uuid {
@@ -264,7 +272,7 @@ impl AddressMap {
         } else {
             let mut found_entry = None;
             while idx < self.db.address_map_entries.len() {
-                if self.db.address_map_entries[idx].uuid.data_1 == 0 {
+                if self.db.address_map_entries[idx].is_deallocated() {
                     break;
                 }
                 if &self.db.address_map_entries[idx].uuid == uuid {
@@ -277,7 +285,7 @@ impl AddressMap {
             if let Some(idx) = found_entry {
                 let mut sec_idx = idx + 1;
                 while sec_idx < self.db.address_map_entries.len() {
-                    if self.db.address_map_entries[sec_idx].uuid.data_1 == 0
+                    if self.db.address_map_entries[sec_idx].is_deallocated()
                         || self.uuid_idx(&self.db.address_map_entries[sec_idx].uuid) != org_idx
                     {
                         break;
@@ -285,15 +293,11 @@ impl AddressMap {
                     sec_idx += 1;
                 }
                 sec_idx -= 1;
-                let mut default = self.db.address_map_entries[idx].dealloc_entry();
+                let default = self.db.address_map_entries[idx].dealloc_entry();
                 let from_offset = Self::PADDING + (idx * AddressEntry::BYTE_SIZE);
                 let to_offset = Self::PADDING + (sec_idx * AddressEntry::BYTE_SIZE);
                 self.db
                     .move_data_with(to_offset, from_offset, default.to_bytes())?;
-
-                self.db.address_map_entries.swap(idx, sec_idx);
-                std::mem::swap(&mut self.db.address_map_entries[sec_idx], &mut default);
-                self.freed_ranges.insert(default.size, default.address);
                 Ok(Some(default))
             } else {
                 Ok(None)

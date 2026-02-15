@@ -3,7 +3,7 @@ pub mod page_table;
 
 use crate::page_table::AddressEntry;
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     os::unix::fs::FileExt,
@@ -31,36 +31,6 @@ macro_rules! lock {
     }};
 }
 
-pub enum UpdateOp {
-    Resize { to: usize },
-    WriteBytes { at: usize, data: Vec<u8> },
-}
-
-impl UpdateOp {
-    const RESIZE: u8 = 0;
-    const WRITE_BYTES: u8 = 1;
-    pub fn into_bytes(self) -> Vec<u8> {
-        match self {
-            Self::Resize { to } => {
-                to.to_le_bytes()
-                    .into_iter()
-                    .fold(vec![Self::RESIZE], |mut bytes, b| {
-                        bytes.push(b);
-                        bytes
-                    })
-            }
-            Self::WriteBytes { at, data } => at
-                .to_le_bytes()
-                .into_iter()
-                .chain(data.len().to_le_bytes().into_iter().chain(data))
-                .fold(vec![Self::WRITE_BYTES], |mut bytes, b| {
-                    bytes.push(b);
-                    bytes
-                }),
-        }
-    }
-}
-
 pub enum PageState {
     DirtyEmpty,
     Empty,
@@ -84,6 +54,7 @@ pub struct DatabaseBuffer {
     page_buf: HashMap<usize, Arc<RwLock<Page>>>,
     commit: usize,
     ledger_version: usize,
+    freed_ranges: BTreeMap<usize, usize>,
     pub address_map_entries: Vec<AddressEntry>,
     pub total_used: usize,
 }
@@ -124,6 +95,7 @@ impl DatabaseBuffer {
             page_buf: HashMap::with_capacity(1000),
             commit: 0,
             ledger_version: 0,
+            freed_ranges: BTreeMap::new(),
             address_map_entries: Vec::with_capacity(0),
             total_used: 0,
         };
@@ -300,6 +272,7 @@ impl DatabaseBuffer {
                             .ok()
                             .map(|mut page| {
                                 if !this.handle_special_pages(
+                                    0,
                                     page_num,
                                     &page,
                                     start_offset,
@@ -369,6 +342,7 @@ impl DatabaseBuffer {
 
     pub fn handle_special_pages(
         &mut self,
+        is_write: u64,
         page_num: usize,
         page: &Page,
         start_offset: usize,
@@ -387,7 +361,12 @@ impl DatabaseBuffer {
                 let idx = ((page_num - 1) * (4096 / 32)) + i + idx_offset;
                 let chunk = <[u8; 32]>::try_from(chunk)
                     .expect("32 byte chunk assertion failed for address map entry");
-                self.address_map_entries[idx] = AddressEntry::from_bytes(chunk);
+                let entry = AddressEntry::from_bytes(chunk);
+                if entry.is_deallocated() && entry.size > 0 {
+                    eprintln!("should dealloc{:#?}", entry);
+                    self.freed_ranges.insert(entry.size, entry.address);
+                }
+                self.address_map_entries[idx] = entry;
             }
         } else if self.is_header_page(page_num) {
             let is_modifying_total_used = start_offset <= Self::TOTAL_USED_OFFSET
@@ -405,6 +384,7 @@ impl DatabaseBuffer {
 
     /// This will forces an address range to be cached into 4MB cache
     pub fn cache_sectors(&mut self, address_range: std::ops::Range<usize>) -> Result<(), ()> {
+        eprintln!("range: {:#?}", address_range);
         lock_shared!(self.wal_file => {
             self.sync_wal()?;
             lock_shared!(self.db_file => {
@@ -416,7 +396,7 @@ impl DatabaseBuffer {
                         page.read()
                             .ok()
                             .map(|page| {
-                                this.handle_special_pages(page_num, &*page, start_offset, end_offset)?;
+                                this.handle_special_pages(1,page_num, &*page, start_offset, end_offset)?;
                                 Ok(())
                             })
                             .unwrap_or(Err(()))
@@ -444,7 +424,7 @@ impl DatabaseBuffer {
                         page.read()
                             .ok()
                             .map(|page| {
-                                this.handle_special_pages(page_num, &page, start_offset, end_offset)?;
+                                this.handle_special_pages(2,page_num, &page, start_offset, end_offset)?;
                                 for b in page[start_offset..end_offset].iter() {
                                     buf[buf_idx] = *b;
                                     buf_idx += 1;
@@ -533,50 +513,75 @@ impl DatabaseBuffer {
         lock!(self.wal_file => {
             self.sync_wal()?;
             lock_shared!(self.db_file => {
-                let end_address = from_address + N;
-
                 let mut buf_idx = 0;
-                self.page_iter(
-                    from_address,
-                    end_address,
-                    |this, page, page_num, start_offset, end_offset| {
-                        page.write()
-                            .ok()
-                            .map(|mut page| {
-                                for b in page[start_offset..end_offset].iter_mut() {
-                                    buf[buf_idx] = *b;
-                                    *b = default[buf_idx];
-                                    buf_idx += 1;
-                                }
-                                this.handle_special_pages(page_num, &page, start_offset, end_offset)?;
-                                Ok(())
-                            })
-                            .unwrap_or(Err(()))
-                    },
-                )?;
+                if to_address == from_address {
+                    self.page_iter(
+                        from_address,
+                        from_address + N,
+                        |this, page, page_num, start_offset, end_offset| {
+                            page.write()
+                                .ok()
+                                .map(|mut page| {
+                                    for page_idx in start_offset..end_offset {
+                                        page[page_idx] = default[buf_idx];
+                                        buf_idx += 1;
+                                    }
+                                    this.handle_special_pages(3,page_num, &page, start_offset, end_offset)?;
+                                    Ok(())
+                                })
+                                .unwrap_or(Err(()))
+                        },
+                    )?;
+                } else {
+                    self.page_iter(
+                        from_address,
+                        from_address + N,
+                        |this, page, page_num, start_offset, end_offset| {
+                            page.write()
+                                .ok()
+                                .map(|mut page| {
+                    //                 eprintln!("{:#?}", page);
+                                    for page_idx in start_offset..end_offset {
+                                        buf[buf_idx] = page[page_idx];
+                                        page[page_idx] = default[buf_idx];
+                                        buf_idx += 1;
+                                    }
+                    //                 eprintln!("{:#?}", page);
+                                    this.handle_special_pages(3,page_num, &page, start_offset, end_offset)?;
+                                    Ok(())
+                                })
+                                .unwrap_or(Err(()))
+                        },
+                    )?;
 
-                let end_address = to_address + N;
-                buf_idx = 0;
-                self.page_iter(
-                    to_address,
-                    end_address,
-                    |this, page, page_num, start_offset, end_offset| {
-                        page.write()
-                            .ok()
-                            .map(|mut page| {
-                                for b in page[start_offset..end_offset].iter_mut() {
-                                    *b = buf[buf_idx];
-                                    buf_idx += 1;
-                                }
-                                this.handle_special_pages(page_num, &page, start_offset, end_offset)?;
-                                Ok(())
-                            })
-                            .unwrap_or(Err(()))
-                    },
-                )?;
+                    // eprintln!("-----------------------------------");
+
+                    buf_idx = 0;
+                    self.page_iter(
+                        to_address,
+                        to_address + N,
+                        |this, page, page_num, start_offset, end_offset| {
+                            page.write()
+                                .ok()
+                                .map(|mut page| {
+                    //                 eprintln!("{:#?}", page);
+                                    for page_idx in start_offset..end_offset {
+                                        page[page_idx] = buf[buf_idx];
+                                        buf_idx += 1;
+                                    }
+                    //                 eprintln!("{:#?}", page);
+                                    this.handle_special_pages(4,page_num, &page, start_offset, end_offset)?;
+                                    Ok(())
+                                })
+                                .unwrap_or(Err(()))
+                        },
+                    )?;
+                }
             });
 
-            self.write_wal_data(&to_address, &buf)?;
+            if to_address != from_address {
+                self.write_wal_data(&to_address, &buf)?;
+            }
             self.write_wal_data(&from_address, &default)?;
             self.write_ledger_version()?;
             self.maybe_flush_wal()?;
@@ -648,7 +653,7 @@ impl DatabaseBuffer {
                                 page[idx] = buf[buf_idx];
                                 buf_idx += 1;
                             }
-                            this.handle_special_pages(page_num, &page, start_offset, end_offset)?;
+                            this.handle_special_pages(5,page_num, &page, start_offset, end_offset)?;
                             Ok(())
                         })
                         .unwrap_or(Err(()))

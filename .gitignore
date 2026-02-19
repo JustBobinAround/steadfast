@@ -1,2 +1,4 @@
 /target
 /testing_bin/out
+/testing_bin/testing.db
+/testing_bin/testing.wal

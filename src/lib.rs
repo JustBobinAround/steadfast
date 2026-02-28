@@ -6,6 +6,7 @@ pub mod async_runtime;
 pub mod errors;
 pub mod html;
 pub mod http;
+pub mod json;
 pub mod parsing;
 pub mod serializer;
 pub mod stream_writer;

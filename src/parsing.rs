@@ -62,13 +62,19 @@ pub enum ParseErr {
         presumed_host: String,
     }, // not really an err, just needs a breakout for an edgecase
     EmptyStack,
+    ExpectedValidKeyword {
+        found: String,
+        at: usize,
+    },
     ExpectedStr {
         expected: String,
         found_char: char,
         at: usize,
     },
+    FoundLeadingZero,
     FailedToConsume {
         found: Option<u8>,
+        at: usize,
     },
     FailedToParseNum {
         found: String,
@@ -101,6 +107,10 @@ pub struct Parser<R: Read> {
 }
 
 impl<R: Read> Parser<R> {
+    pub fn idx(&self) -> usize {
+        self.idx
+    }
+
     pub fn from_str(s: &str) -> Parser<Cursor<&str>> {
         let stream = Cursor::new(s);
         Parser {
@@ -199,6 +209,11 @@ impl<R: Read> Parser<R> {
             self.consume();
         }
     }
+    pub fn skip_whitespace_and_lines(&mut self) {
+        while self.is_linear_whitespace() || self.matches(|b| b == b'\n') {
+            self.consume();
+        }
+    }
 
     pub fn consume_escaped<F: Fn(&mut Self) -> bool, FF: Fn(&mut Self) -> bool>(
         &mut self,
@@ -226,7 +241,7 @@ impl<R: Read> Parser<R> {
     }
 
     pub fn consume_str_lit(&mut self) -> String {
-        self.consume_escaped(|c| c.matches(|c| c == b'\\'), |c| c.matches(|c| c == b'"'))
+        self.consume_escaped(|c| c.matches(|c| c == b'\\'), |c| c.matches(|c| c != b'"'))
     }
 
     // HTTP spec section 2.2
@@ -344,7 +359,10 @@ impl<R: Read> Parser<R> {
         if peek.is_some_and(f) {
             Ok(self.consume().unwrap())
         } else {
-            Err(ParseErr::FailedToConsume { found: peek })
+            Err(ParseErr::FailedToConsume {
+                found: peek,
+                at: self.idx(),
+            })
         }
     }
 

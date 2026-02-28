@@ -445,7 +445,7 @@ impl<R: Read> Parsable<R> for ContentDisposition {
         while parser.matches(|b| b == b';') {
             parser.consume();
             let key = parser.consume_while(|p| p.is_token_char());
-            parser.expect_str("=");
+            parser.expect_str("=")?;
             let val = if parser.matches(|b| b == b'"') {
                 parser.consume_str_lit()
             } else {

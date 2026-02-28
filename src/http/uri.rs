@@ -651,7 +651,10 @@ mod tests {
         let mut parser = StrParser::from_str("%3J");
         assert_eq!(
             PctEncoding::parse(&mut parser),
-            Err(ParseErr::FailedToConsume { found: Some(74) })
+            Err(ParseErr::FailedToConsume {
+                found: Some(74),
+                at: parser.idx()
+            })
         );
     }
 

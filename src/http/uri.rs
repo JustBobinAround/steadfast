@@ -401,6 +401,7 @@ impl Display for RequestQuery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.parameters {
             DataHolder::Primitive { ty: _, val: _ } => {}
+            DataHolder::Array(_) => {}
             DataHolder::Struct(ref s) => {
                 for (k, v) in s.iter() {
                     match v {
@@ -420,7 +421,7 @@ impl Display for RequestQuery {
 impl RequestQuery {
     fn sorted_keys(&self) -> Vec<&String> {
         match &self.parameters {
-            DataHolder::Primitive { ty: _, val: _ } => Vec::new(),
+            DataHolder::Array(_) | DataHolder::Primitive { ty: _, val: _ } => Vec::new(),
             DataHolder::Struct(s) => {
                 let mut keys: Vec<&String> = s.keys().collect();
                 keys.sort();

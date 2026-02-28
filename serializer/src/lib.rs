@@ -19,12 +19,14 @@ pub enum PrimType {
     U128,
     Usize,
     String,
+    None,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DataHolder {
     Primitive { ty: PrimType, val: String },
     Struct(HashMap<String, DataHolder>),
+    Array(Vec<DataHolder>),
 }
 
 // impl DataHolder {

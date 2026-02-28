@@ -1,48 +1,63 @@
-use parsing::prelude::*;
-use std::collections::HashMap;
-use std::io::Read;
+use parsing::{StrParser, prelude::*};
+use serializer::{DataHolder, Deserialize, PrimType, Serialize};
+use std::{collections::HashMap, io::Read};
 // See rfc4627, rfc8259
 #[derive(Debug, PartialEq)]
-pub enum JsonVal {
-    String(String),
-    Float(f64),
-    Int(i64),
-    Array(Vec<JsonVal>),
-    Object(JsonObj),
-    Bool(bool),
-    None,
+pub struct JsonVal {
+    data: DataHolder,
+}
+
+fn print_prim_type(
+    ty: &PrimType,
+    val: &String,
+    f: &mut std::fmt::Formatter<'_>,
+) -> std::fmt::Result {
+    match ty {
+        PrimType::Bool => {
+            if val == "true" {
+                write!(f, "true")
+            } else {
+                write!(f, "false")
+            }
+        }
+        PrimType::String | PrimType::Char => write!(f, "\"{}\"", val),
+        PrimType::None => write!(f, "null"),
+        _ => write!(f, "{}", val),
+    }
+}
+
+fn print_dataholder(data_holder: &DataHolder, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match data_holder {
+        DataHolder::Primitive { ty, val } => print_prim_type(ty, val, f),
+        DataHolder::Array(elements) => {
+            write!(f, "[")?;
+            let len = elements.len();
+            for (i, item) in elements.iter().enumerate() {
+                print_dataholder(item, f)?;
+                if i != len - 1 {
+                    write!(f, ",")?;
+                }
+            }
+            write!(f, "]")
+        }
+        DataHolder::Struct(obj) => {
+            write!(f, "{{")?;
+            let len = obj.len();
+            for (i, (key, val)) in obj.iter().enumerate() {
+                write!(f, "\"{}\":", key)?;
+                print_dataholder(val, f)?;
+                if i != len - 1 {
+                    write!(f, ",")?;
+                }
+            }
+            write!(f, "}}")
+        }
+    }
 }
 
 impl std::fmt::Display for JsonVal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::String(s) => write!(f, "{}", s),
-            Self::Float(s) => write!(f, "{}", s),
-            Self::Int(s) => write!(f, "{}", s),
-            Self::Array(s) => {
-                write!(f, "[")?;
-                let len = s.len();
-                for (i, item) in s.iter().enumerate() {
-                    if i == len - 1 {
-                        write!(f, "{}", item)?;
-                    } else {
-                        write!(f, "{},", item)?;
-                    }
-                }
-                write!(f, "]")
-            }
-            Self::Object(o) => write!(f, "{}", o),
-            Self::Bool(b) => {
-                if *b {
-                    write!(f, "true")
-                } else {
-                    write!(f, "false")
-                }
-            }
-            Self::None => {
-                write!(f, "null")
-            }
-        }
+        print_dataholder(&self.data, f)
     }
 }
 
@@ -79,17 +94,23 @@ fn parse_number<R: Read>(parser: &mut Parser<R>, has_minus: bool) -> ParseResult
     }
 
     if is_float {
-        let f = s.parse::<f64>().map_err(|_| ParseErr::FailedToParseNum {
-            found: s,
-            radix: 10,
-        })?;
-        Ok(JsonVal::Float(f))
+        // let f = s.parse::<f64>().map_err(|_| ParseErr::FailedToParseNum {
+        //     found: s,
+        //     radix: 10,
+        // })?;
+        Ok(JsonVal {
+            data: DataHolder::Primitive {
+                ty: PrimType::F64,
+                val: s,
+            },
+        })
     } else {
-        let i = s.parse::<i64>().map_err(|_| ParseErr::FailedToParseNum {
-            found: s,
-            radix: 10,
-        })?;
-        Ok(JsonVal::Int(i))
+        Ok(JsonVal {
+            data: DataHolder::Primitive {
+                ty: PrimType::I64,
+                val: s,
+            },
+        })
     }
 }
 impl<R: Read> Parsable<R> for JsonVal {
@@ -99,17 +120,48 @@ impl<R: Read> Parsable<R> for JsonVal {
             parser.consume_or_err(|b| b == b'"')?;
             let s = parser.consume_str_lit();
             parser.consume_or_err(|b| b == b'"')?;
-            Ok(JsonVal::String(s))
+            Ok(JsonVal {
+                data: DataHolder::Primitive {
+                    ty: PrimType::String,
+                    val: s,
+                },
+            })
         } else if parser.matches(|b| b == b'{') {
-            let obj = JsonObj::parse(parser)?;
-            Ok(JsonVal::Object(obj))
+            parser.skip_whitespace_and_lines();
+            parser.consume_or_err(|b| b == b'{')?;
+            parser.skip_whitespace_and_lines();
+            let mut map = HashMap::new();
+            while parser.is_dquote() {
+                parser.consume_or_err(|b| b == b'"')?;
+                eprintln!("{:#?}", parser.peek());
+                let key = parser.consume_str_lit();
+                parser.consume_or_err(|b| b == b'"')?;
+                eprintln!("key: {}", key);
+                parser.skip_whitespace_and_lines();
+                parser.consume_or_err(|b| b == b':')?;
+                parser.skip_whitespace_and_lines();
+                let val = JsonVal::parse(parser)?;
+                parser.skip_whitespace_and_lines();
+                map.insert(key, val.data);
+                if parser.matches(|b| b == b'}') {
+                    break;
+                } else {
+                    parser.consume_or_err(|b| b == b',')?;
+                    parser.skip_whitespace_and_lines();
+                }
+            }
+            parser.skip_whitespace_and_lines();
+            parser.consume_or_err(|b| b == b'}')?;
+            Ok(JsonVal {
+                data: DataHolder::Struct(map),
+            })
         } else if parser.matches(|b| b == b'[') {
             let mut vals = Vec::new();
             parser.consume_or_err(|b| b == b'[')?;
             loop {
                 parser.skip_whitespace_and_lines();
                 let val = JsonVal::parse(parser)?;
-                vals.push(val);
+                vals.push(val.data);
                 parser.skip_whitespace_and_lines();
                 if parser.matches(|b| b == b']') {
                     break;
@@ -117,13 +169,30 @@ impl<R: Read> Parsable<R> for JsonVal {
                 parser.consume_or_err(|b| b == b',')?;
             }
             parser.consume_or_err(|b| b == b']')?;
-            Ok(JsonVal::Array(vals))
+            Ok(JsonVal {
+                data: DataHolder::Array(vals),
+            })
         } else if parser.is_alpha() {
             let keyword = parser.consume_while(|this| this.is_alpha());
             match keyword.as_str() {
-                "true" => Ok(JsonVal::Bool(true)),
-                "false" => Ok(JsonVal::Bool(false)),
-                "null" => Ok(JsonVal::None),
+                "true" => Ok(JsonVal {
+                    data: DataHolder::Primitive {
+                        ty: PrimType::Bool,
+                        val: String::from("true"),
+                    },
+                }),
+                "false" => Ok(JsonVal {
+                    data: DataHolder::Primitive {
+                        ty: PrimType::Bool,
+                        val: String::from("false"),
+                    },
+                }),
+                "null" => Ok(JsonVal {
+                    data: DataHolder::Primitive {
+                        ty: PrimType::None,
+                        val: String::from(""),
+                    },
+                }),
                 _ => Err(ParseErr::ExpectedValidKeyword {
                     found: keyword,
                     at: parser.idx(),
@@ -140,63 +209,6 @@ impl<R: Read> Parsable<R> for JsonVal {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct JsonObj {
-    map: HashMap<String, JsonVal>,
-}
-impl std::fmt::Display for JsonObj {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{")?;
-        let len = self.map.len();
-        for (i, (key, val)) in self.map.iter().enumerate() {
-            if i == len - 1 {
-                write!(f, "\"{}\": {}", key, val)?;
-            } else {
-                write!(f, "\"{}\": {},", key, val)?;
-            }
-        }
-        write!(f, "}}")
-    }
-}
-
-impl JsonObj {
-    pub fn new(map: HashMap<String, JsonVal>) -> JsonObj {
-        JsonObj { map }
-    }
-}
-
-impl<R: Read> Parsable<R> for JsonObj {
-    fn parse(parser: &mut Parser<R>) -> ParseResult<Self> {
-        parser.skip_whitespace_and_lines();
-        parser.consume_or_err(|b| b == b'{')?;
-        parser.skip_whitespace_and_lines();
-        let mut map = HashMap::new();
-        while parser.is_dquote() {
-            parser.consume_or_err(|b| b == b'"')?;
-            eprintln!("{:#?}", parser.peek());
-            let key = parser.consume_str_lit();
-            parser.consume_or_err(|b| b == b'"')?;
-            eprintln!("key: {}", key);
-            parser.skip_whitespace_and_lines();
-            parser.consume_or_err(|b| b == b':')?;
-            parser.skip_whitespace_and_lines();
-            let val = JsonVal::parse(parser)?;
-            parser.skip_whitespace_and_lines();
-            map.insert(key, val);
-            if parser.matches(|b| b == b'}') {
-                break;
-            } else {
-                parser.consume_or_err(|b| b == b',')?;
-                parser.skip_whitespace_and_lines();
-            }
-        }
-        parser.skip_whitespace_and_lines();
-        parser.consume_or_err(|b| b == b'}')?;
-
-        Ok(JsonObj { map })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,35 +216,67 @@ mod tests {
 
     #[test]
     fn test_parsing() {
-        let id = JsonVal::Int(1);
-        let name = JsonVal::String("Alice".to_string());
-        let active = JsonVal::Bool(true);
-        let roles = JsonVal::Array(vec![
-            JsonVal::String("admin".to_string()),
-            JsonVal::String("editor".to_string()),
-        ]);
-        let age = JsonVal::Int(29);
-        let email = JsonVal::String("alice@example.com".to_string());
-        let theme = JsonVal::String("dark".to_string());
+        let id = JsonVal {
+            data: DataHolder::Primitive {
+                ty: PrimType::I64,
+                val: String::from("1"),
+            },
+        };
+        let name = JsonVal {
+            data: DataHolder::Primitive {
+                ty: PrimType::String,
+                val: String::from("Alice"),
+            },
+        };
+        let active = JsonVal {
+            data: DataHolder::Primitive {
+                ty: PrimType::Bool,
+                val: String::from("true"),
+            },
+        };
+        let roles = JsonVal {
+            data: DataHolder::Array(vec![
+                DataHolder::Primitive {
+                    ty: PrimType::String,
+                    val: String::from("admin"),
+                },
+                DataHolder::Primitive {
+                    ty: PrimType::String,
+                    val: String::from("editor"),
+                },
+            ]),
+        };
+        let age = JsonVal {
+            data: DataHolder::Primitive {
+                ty: PrimType::F64,
+                val: String::from("29.5"),
+            },
+        };
+        let email = JsonVal {
+            data: DataHolder::Primitive {
+                ty: PrimType::String,
+                val: String::from("alice@example.com"),
+            },
+        };
+        let theme = JsonVal {
+            data: DataHolder::Primitive {
+                ty: PrimType::String,
+                val: String::from("dark"),
+            },
+        };
         let mut profile = HashMap::new();
-        profile.insert(String::from("age"), age);
-        profile.insert(String::from("email"), email);
+        profile.insert(String::from("age"), age.data);
+        profile.insert(String::from("email"), email.data);
         let mut preferences = HashMap::new();
-        preferences.insert(String::from("theme"), theme);
-        profile.insert(
-            String::from("preferences"),
-            JsonVal::Object(JsonObj::new(preferences)),
-        );
+        preferences.insert(String::from("theme"), theme.data);
+        profile.insert(String::from("preferences"), DataHolder::Struct(preferences));
 
         let mut obj_map = HashMap::new();
-        obj_map.insert(String::from("id"), id);
-        obj_map.insert(String::from("name"), name);
-        obj_map.insert(String::from("active"), active);
-        obj_map.insert(String::from("roles"), roles);
-        obj_map.insert(
-            String::from("profile"),
-            JsonVal::Object(JsonObj::new(profile)),
-        );
+        obj_map.insert(String::from("id"), id.data);
+        obj_map.insert(String::from("name"), name.data);
+        obj_map.insert(String::from("active"), active.data);
+        obj_map.insert(String::from("roles"), roles.data);
+        obj_map.insert(String::from("profile"), DataHolder::Struct(profile));
         let mut test_json = StrParser::from_str(
             r#"{
   "id": 1,
@@ -240,7 +284,7 @@ mod tests {
   "active": true,
   "roles": ["admin", "editor"],
   "profile": {
-    "age": 29,
+    "age": 29.5,
     "email": "alice@example.com",
     "preferences": {
       "theme": "dark",
@@ -249,50 +293,65 @@ mod tests {
 }"#,
         );
 
-        let obj = JsonObj::new(obj_map);
-        assert_eq!(JsonObj::parse(&mut test_json), Ok(obj))
+        let obj = JsonVal {
+            data: DataHolder::Struct(obj_map),
+        };
+        assert_eq!(JsonVal::parse(&mut test_json), Ok(obj))
     }
 }
 
-macro_rules! impl_into_json_int {
-    ($t: ty) => {
-        impl From<$t> for JsonVal {
-            fn from(value: $t) -> Self {
-                JsonVal::Int(value as i64)
-            }
-        }
-    };
-}
+// macro_rules! impl_into_json_int {
+//     ($t: ty) => {
+//         impl From<$t> for JsonVal {
+//             fn from(value: $t) -> Self {
+//                 JsonVal::Int(value as i64)
+//             }
+//         }
+//     };
+// }
 
-impl_into_json_int!(i8);
-impl_into_json_int!(i16);
-impl_into_json_int!(i32);
+// impl_into_json_int!(i8);
+// impl_into_json_int!(i16);
+// impl_into_json_int!(i32);
 
-impl_into_json_int!(u8);
-impl_into_json_int!(u16);
-impl_into_json_int!(u32);
-impl_into_json_int!(u64);
+// impl_into_json_int!(u8);
+// impl_into_json_int!(u16);
+// impl_into_json_int!(u32);
+// impl_into_json_int!(u64);
 
-impl From<f32> for JsonVal {
-    fn from(value: f32) -> Self {
-        JsonVal::Float(value as f64)
-    }
-}
+// impl From<f32> for JsonVal {
+//     fn from(value: f32) -> Self {
+//         JsonVal::Float(value as f64)
+//     }
+// }
 
-impl From<String> for JsonVal {
-    fn from(value: String) -> Self {
-        JsonVal::String(value)
-    }
-}
+// impl From<String> for JsonVal {
+//     fn from(value: String) -> Self {
+//         JsonVal::String(value)
+//     }
+// }
 
-impl From<&str> for JsonVal {
-    fn from(value: &str) -> Self {
-        JsonVal::String(value.to_string())
-    }
-}
+// impl From<&str> for JsonVal {
+//     fn from(value: &str) -> Self {
+//         JsonVal::String(value.to_string())
+//     }
+// }
 
-impl<T: Into<JsonVal>> From<Vec<T>> for JsonVal {
-    fn from(value: Vec<T>) -> Self {
-        JsonVal::Array(value.into_iter().map(|entry| entry.into()).collect())
-    }
-}
+// impl<T: Into<JsonVal>> From<Vec<T>> for JsonVal {
+//     fn from(value: Vec<T>) -> Self {
+//         JsonVal::Array(value.into_iter().map(|entry| entry.into()).collect())
+//     }
+// }
+// pub trait FromJson: Sized + Deserialize {
+//     fn from_json(json: JsonVal) -> ParseResult<Self> {
+//         let data_holder = match json {
+//             JsonVal::String(s) => Dataholder::Primative {
+//                 ty: PrimType::String,
+//                 val: s,
+//             },
+//             _ => todo!(),
+//         };
+
+//         Err(ParseErr::InvalidUTF8)
+//     }
+// }

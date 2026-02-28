@@ -17,6 +17,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "parsing"
+version = "0.1.0"
+
+[[package]]
 name = "rand"
 version = "0.1.0"
 
@@ -43,5 +47,6 @@ version = "0.1.0"
 dependencies = [
  "db",
  "macros",
+ "parsing",
  "uuid",
 ]

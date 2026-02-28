@@ -7,7 +7,7 @@ pub mod errors;
 pub mod html;
 pub mod http;
 pub mod json;
-pub mod parsing;
+// pub mod parsing;
 pub mod serializer;
 pub mod stream_writer;
 pub mod variadics;
@@ -38,4 +38,5 @@ pub use db;
 /// Additionally, this macro expects the crate to have a name of "zero". Anything
 /// else will break the macro.
 pub use macros::{Deserialize, ToDatabaseBytes, ZeroTable, html, main};
+pub use parsing;
 pub use uuid::UUID;

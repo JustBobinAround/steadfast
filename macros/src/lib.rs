@@ -166,8 +166,8 @@ fn parse_deserialize_struct(mut parser: TokenParser, is_public: bool) -> TokenSt
     let data_struct = parser.consume_struct(is_public).expect("a valid struct");
 
     let struct_name = data_struct.name();
-    let generic_idents = data_struct.generic_idents();
-    let generic_traits = data_struct.generic_traits();
+    // let generic_idents = data_struct.generic_idents();
+    // let generic_traits = data_struct.generic_traits();
     // if generics.len() > 0 {
     //     // TODO: add generic support
     //     unimplemented!("deriving deserialize with generics is not currently supported");

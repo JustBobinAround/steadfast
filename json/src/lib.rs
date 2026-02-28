@@ -13,6 +13,39 @@ pub enum JsonVal {
     None,
 }
 
+impl std::fmt::Display for JsonVal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::String(s) => write!(f, "{}", s),
+            Self::Float(s) => write!(f, "{}", s),
+            Self::Int(s) => write!(f, "{}", s),
+            Self::Array(s) => {
+                write!(f, "[")?;
+                let len = s.len();
+                for (i, item) in s.iter().enumerate() {
+                    if i == len - 1 {
+                        write!(f, "{}", item)?;
+                    } else {
+                        write!(f, "{},", item)?;
+                    }
+                }
+                write!(f, "]")
+            }
+            Self::Object(o) => write!(f, "{}", o),
+            Self::Bool(b) => {
+                if *b {
+                    write!(f, "true")
+                } else {
+                    write!(f, "false")
+                }
+            }
+            Self::None => {
+                write!(f, "null")
+            }
+        }
+    }
+}
+
 fn parse_number<R: Read>(parser: &mut Parser<R>, has_minus: bool) -> ParseResult<JsonVal> {
     let mut s = if has_minus {
         String::from("-")
@@ -111,6 +144,20 @@ impl<R: Read> Parsable<R> for JsonVal {
 pub struct JsonObj {
     map: HashMap<String, JsonVal>,
 }
+impl std::fmt::Display for JsonObj {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{{")?;
+        let len = self.map.len();
+        for (i, (key, val)) in self.map.iter().enumerate() {
+            if i == len - 1 {
+                write!(f, "\"{}\": {}", key, val)?;
+            } else {
+                write!(f, "\"{}\": {},", key, val)?;
+            }
+        }
+        write!(f, "}}")
+    }
+}
 
 impl JsonObj {
     pub fn new(map: HashMap<String, JsonVal>) -> JsonObj {
@@ -204,5 +251,48 @@ mod tests {
 
         let obj = JsonObj::new(obj_map);
         assert_eq!(JsonObj::parse(&mut test_json), Ok(obj))
+    }
+}
+
+macro_rules! impl_into_json_int {
+    ($t: ty) => {
+        impl From<$t> for JsonVal {
+            fn from(value: $t) -> Self {
+                JsonVal::Int(value as i64)
+            }
+        }
+    };
+}
+
+impl_into_json_int!(i8);
+impl_into_json_int!(i16);
+impl_into_json_int!(i32);
+
+impl_into_json_int!(u8);
+impl_into_json_int!(u16);
+impl_into_json_int!(u32);
+impl_into_json_int!(u64);
+
+impl From<f32> for JsonVal {
+    fn from(value: f32) -> Self {
+        JsonVal::Float(value as f64)
+    }
+}
+
+impl From<String> for JsonVal {
+    fn from(value: String) -> Self {
+        JsonVal::String(value)
+    }
+}
+
+impl From<&str> for JsonVal {
+    fn from(value: &str) -> Self {
+        JsonVal::String(value.to_string())
+    }
+}
+
+impl<T: Into<JsonVal>> From<Vec<T>> for JsonVal {
+    fn from(value: Vec<T>) -> Self {
+        JsonVal::Array(value.into_iter().map(|entry| entry.into()).collect())
     }
 }

@@ -32,6 +32,13 @@ name = "rand"
 version = "0.1.0"
 
 [[package]]
+name = "serializer"
+version = "0.1.0"
+dependencies = [
+ "parsing",
+]
+
+[[package]]
 name = "testing_bin"
 version = "0.1.0"
 dependencies = [
@@ -56,5 +63,6 @@ dependencies = [
  "json",
  "macros",
  "parsing",
+ "serializer",
  "uuid",
 ]

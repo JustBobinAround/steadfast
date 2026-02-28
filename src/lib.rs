@@ -7,9 +7,9 @@ pub mod errors;
 pub mod html;
 pub mod http;
 // pub mod parsing;
-pub mod serializer;
 pub mod stream_writer;
 pub mod variadics;
+
 pub use db;
 pub use json;
 /// proc macro to wrap main around async executor
@@ -39,4 +39,5 @@ pub use json;
 /// else will break the macro.
 pub use macros::{Deserialize, ToDatabaseBytes, ZeroTable, html, main};
 pub use parsing;
+pub use serializer;
 pub use uuid::UUID;

@@ -4,12 +4,8 @@ pub mod routing;
 pub mod server;
 pub mod uri;
 
-use crate::http::routing::ToQuery;
-use crate::http::uri::RequestQuery;
 use crate::parsing::StrParser;
 use crate::parsing::prelude::*;
-use crate::serializer::DataHolder;
-use crate::serializer::Deserialize;
 use crate::stream_writer::prelude::*;
 use request::RequestBody;
 pub use routing::Query;

@@ -1,10 +1,29 @@
-use std::{collections::HashMap, fmt::Display, str::FromStr};
+use std::{collections::HashMap, str::FromStr};
 
-use crate::parsing::Parsable;
+#[derive(Debug, PartialEq, Eq)]
+pub enum PrimType {
+    Bool,
+    Char,
+    F32,
+    F64,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    Isize,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    Usize,
+    String,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DataHolder {
-    Primitive(String),
+    Primitive { ty: PrimType, val: String },
     Struct(HashMap<String, DataHolder>),
 }
 
@@ -17,37 +36,43 @@ pub trait Serialize {
 }
 
 macro_rules! impl_primitive_serialize {
-    ($t:ty) => {
+    ($name: expr, $t:ty) => {
         impl Serialize for $t {
             fn serialize(self) -> DataHolder {
-                DataHolder::Primitive(self.to_string())
+                DataHolder::Primitive {
+                    ty: $name,
+                    val: self.to_string(),
+                }
             }
         }
         impl Serialize for &$t {
             fn serialize(self) -> DataHolder {
-                DataHolder::Primitive(self.to_string())
+                DataHolder::Primitive {
+                    ty: $name,
+                    val: self.to_string(),
+                }
             }
         }
     };
 }
 
-impl_primitive_serialize!(bool);
-impl_primitive_serialize!(char);
-impl_primitive_serialize!(f32);
-impl_primitive_serialize!(f64);
-impl_primitive_serialize!(i8);
-impl_primitive_serialize!(i16);
-impl_primitive_serialize!(i32);
-impl_primitive_serialize!(i64);
-impl_primitive_serialize!(i128);
-impl_primitive_serialize!(isize);
-impl_primitive_serialize!(u8);
-impl_primitive_serialize!(u16);
-impl_primitive_serialize!(u32);
-impl_primitive_serialize!(u64);
-impl_primitive_serialize!(u128);
-impl_primitive_serialize!(usize);
-impl_primitive_serialize!(String);
+impl_primitive_serialize!(PrimType::Bool, bool);
+impl_primitive_serialize!(PrimType::Char, char);
+impl_primitive_serialize!(PrimType::F32, f32);
+impl_primitive_serialize!(PrimType::F64, f64);
+impl_primitive_serialize!(PrimType::I8, i8);
+impl_primitive_serialize!(PrimType::I16, i16);
+impl_primitive_serialize!(PrimType::I32, i32);
+impl_primitive_serialize!(PrimType::I64, i64);
+impl_primitive_serialize!(PrimType::I128, i128);
+impl_primitive_serialize!(PrimType::Isize, isize);
+impl_primitive_serialize!(PrimType::U8, u8);
+impl_primitive_serialize!(PrimType::U16, u16);
+impl_primitive_serialize!(PrimType::U32, u32);
+impl_primitive_serialize!(PrimType::U64, u64);
+impl_primitive_serialize!(PrimType::U128, u128);
+impl_primitive_serialize!(PrimType::Usize, usize);
+impl_primitive_serialize!(PrimType::String, String);
 
 pub trait Deserialize: Sized {
     fn deserialize(dh: DataHolder) -> Result<Self, ()>;
@@ -58,7 +83,7 @@ macro_rules! impl_primitive_deserialize {
         impl Deserialize for $t {
             fn deserialize(dh: DataHolder) -> Result<Self, ()> {
                 match dh {
-                    DataHolder::Primitive(s) => match Self::from_str(&s) {
+                    DataHolder::Primitive { ty: _, val } => match Self::from_str(&val) {
                         Ok(s) => Ok(s),
                         Err(_) => Err(()),
                     },
@@ -100,7 +125,7 @@ impl_primitive_deserialize!(usize);
 impl Deserialize for String {
     fn deserialize(dh: DataHolder) -> Result<Self, ()> {
         match dh {
-            DataHolder::Primitive(s) => Ok(s),
+            DataHolder::Primitive { ty: _, val } => Ok(val),
             _ => Err(()),
         }
     }

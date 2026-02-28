@@ -133,10 +133,8 @@ impl<R: Read> Parsable<R> for JsonVal {
             let mut map = HashMap::new();
             while parser.is_dquote() {
                 parser.consume_or_err(|b| b == b'"')?;
-                eprintln!("{:#?}", parser.peek());
                 let key = parser.consume_str_lit();
                 parser.consume_or_err(|b| b == b'"')?;
-                eprintln!("key: {}", key);
                 parser.skip_whitespace_and_lines();
                 parser.consume_or_err(|b| b == b':')?;
                 parser.skip_whitespace_and_lines();
@@ -211,8 +209,9 @@ impl<R: Read> Parsable<R> for JsonVal {
 
 #[cfg(test)]
 mod tests {
+    use super::IntoJson;
     use super::*;
-    use parsing::StrParser;
+    use serializer::Serialize;
 
     #[test]
     fn test_parsing() {
@@ -296,62 +295,46 @@ mod tests {
         let obj = JsonVal {
             data: DataHolder::Struct(obj_map),
         };
-        assert_eq!(JsonVal::parse(&mut test_json), Ok(obj))
+        assert_eq!(JsonVal::parse(&mut test_json), Ok(obj));
     }
 }
 
-// macro_rules! impl_into_json_int {
-//     ($t: ty) => {
-//         impl From<$t> for JsonVal {
-//             fn from(value: $t) -> Self {
-//                 JsonVal::Int(value as i64)
-//             }
-//         }
-//     };
-// }
+impl From<DataHolder> for JsonVal {
+    fn from(value: DataHolder) -> Self {
+        JsonVal { data: value }
+    }
+}
 
-// impl_into_json_int!(i8);
-// impl_into_json_int!(i16);
-// impl_into_json_int!(i32);
+impl From<JsonVal> for DataHolder {
+    fn from(value: JsonVal) -> Self {
+        value.data
+    }
+}
 
-// impl_into_json_int!(u8);
-// impl_into_json_int!(u16);
-// impl_into_json_int!(u32);
-// impl_into_json_int!(u64);
-
-// impl From<f32> for JsonVal {
-//     fn from(value: f32) -> Self {
-//         JsonVal::Float(value as f64)
-//     }
-// }
-
-// impl From<String> for JsonVal {
-//     fn from(value: String) -> Self {
-//         JsonVal::String(value)
-//     }
-// }
-
-// impl From<&str> for JsonVal {
-//     fn from(value: &str) -> Self {
-//         JsonVal::String(value.to_string())
-//     }
-// }
-
-// impl<T: Into<JsonVal>> From<Vec<T>> for JsonVal {
-//     fn from(value: Vec<T>) -> Self {
-//         JsonVal::Array(value.into_iter().map(|entry| entry.into()).collect())
-//     }
-// }
-// pub trait FromJson: Sized + Deserialize {
-//     fn from_json(json: JsonVal) -> ParseResult<Self> {
-//         let data_holder = match json {
-//             JsonVal::String(s) => Dataholder::Primative {
-//                 ty: PrimType::String,
-//                 val: s,
-//             },
-//             _ => todo!(),
-//         };
-
-//         Err(ParseErr::InvalidUTF8)
-//     }
-// }
+pub trait FromJson: Deserialize {
+    fn from_json_str(json_str: &str) -> Result<Self, ()>;
+    fn from_json_val(json_val: JsonVal) -> Result<Self, ()>;
+}
+impl<T: Deserialize> FromJson for T {
+    fn from_json_str(json_str: &str) -> Result<Self, ()> {
+        let mut str_parser = StrParser::from_str(json_str);
+        let json_val = JsonVal::parse(&mut str_parser).map_err(|_| ())?;
+        Self::deserialize(json_val.into())
+    }
+    fn from_json_val(json_val: JsonVal) -> Result<Self, ()> {
+        Self::deserialize(json_val.into())
+    }
+}
+pub trait IntoJson: Sized {
+    fn to_json_val(self) -> JsonVal;
+    fn to_json(self) -> String;
+}
+impl<T: Serialize> IntoJson for T {
+    fn to_json_val(self) -> JsonVal {
+        let dh = self.serialize();
+        JsonVal { data: dh }
+    }
+    fn to_json(self) -> String {
+        self.to_json_val().to_string()
+    }
+}

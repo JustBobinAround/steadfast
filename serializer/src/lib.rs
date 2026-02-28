@@ -76,6 +76,12 @@ impl_primitive_serialize!(PrimType::U128, u128);
 impl_primitive_serialize!(PrimType::Usize, usize);
 impl_primitive_serialize!(PrimType::String, String);
 
+impl<T: Serialize> Serialize for Vec<T> {
+    fn serialize(self) -> DataHolder {
+        DataHolder::Array(self.into_iter().map(|item| item.serialize()).collect())
+    }
+}
+
 pub trait Deserialize: Sized {
     fn deserialize(dh: DataHolder) -> Result<Self, ()>;
 }
@@ -139,6 +145,14 @@ impl Deserialize for HashMap<String, String> {
                 .into_iter()
                 .map(|(k, v)| Ok((k, String::deserialize(v)?)))
                 .collect(),
+            _ => Err(()),
+        }
+    }
+}
+impl<T: Deserialize> Deserialize for Vec<T> {
+    fn deserialize(dh: DataHolder) -> Result<Self, ()> {
+        match dh {
+            DataHolder::Array(data) => data.into_iter().map(|item| T::deserialize(item)).collect(),
             _ => Err(()),
         }
     }

@@ -209,9 +209,7 @@ impl<R: Read> Parsable<R> for JsonVal {
 
 #[cfg(test)]
 mod tests {
-    use super::IntoJson;
     use super::*;
-    use serializer::Serialize;
 
     #[test]
     fn test_parsing() {

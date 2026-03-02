@@ -89,7 +89,13 @@
 		send(elt, "inited", {}, false)
 	}
 	let process = (n)=>{
-		if (n.matches){
+    if (n.shadowRoot) {
+      document.__fixi_mo.observe(n.shadowRoot, {
+        childList: true,
+        subtree: true
+      });
+    }
+    if (n.matches){
 			if (ignore(n)) return
 			if (n.matches("[fx-action]")) init(n)
 		}

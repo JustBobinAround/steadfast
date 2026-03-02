@@ -82,7 +82,10 @@ fn main() -> Result<(), ()> {
     eprintln!("{:#?}", entry);
     eprintln!("=====================================");
     // eprintln!("{:#?}", am);
-    eprintln!("{:#?}", am.remove_allocation(&entry.uuid));
+    eprintln!(
+        ">>>>>>>>>>>>>>>>>>>>>>{:#?}",
+        am.remove_allocation(&entry.uuid)
+    );
     eprintln!("=====================================");
     eprintln!("{:#?}", am.get(&entry.uuid));
     eprintln!("=====================================");

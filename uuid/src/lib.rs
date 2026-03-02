@@ -10,6 +10,8 @@ pub struct UUID {
     pub data_4: [u8; 8],
 }
 
+impl Copy for UUID {}
+
 impl PartialEq for UUID {
     fn eq(&self, other: &Self) -> bool {
         self.data_1 == other.data_1

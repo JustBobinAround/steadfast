@@ -102,6 +102,7 @@ impl DatabaseBuffer {
 
         db.read_total_used()?;
         db.read_entry_alloc()?;
+        db.sync_address_map()?;
 
         Ok(db)
     }
@@ -142,6 +143,7 @@ impl DatabaseBuffer {
     }
 
     pub fn sync_address_map(&mut self) -> Result<(), ()> {
+        eprintln!("running cache");
         self.cache_sectors(0..self.address_map_bound())
     }
 
@@ -349,6 +351,7 @@ impl DatabaseBuffer {
         end_offset: usize,
     ) -> Result<bool, ()> {
         let is_entry = self.is_entry_page(page_num);
+        eprintln!("found entry: {}", is_entry);
         if is_entry {
             if (end_offset - start_offset) % AddressEntry::BYTE_SIZE > 0 {
                 return Err(());
@@ -365,6 +368,8 @@ impl DatabaseBuffer {
                 if entry.is_deallocated() && entry.size > 0 {
                     eprintln!("should dealloc{:#?}", entry);
                     self.freed_ranges.insert(entry.size, entry.address);
+                } else if entry.uuid.data_2 != 0 {
+                    eprintln!("shouldnt dealloc{:#?}", entry);
                 }
                 self.address_map_entries[idx] = entry;
             }

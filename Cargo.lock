@@ -10,6 +10,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "db2"
+version = "0.1.0"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
 name = "json"
 version = "0.1.0"
 dependencies = [

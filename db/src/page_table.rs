@@ -136,6 +136,14 @@ impl AddressMap {
         }
     }
 
+    pub fn check_or_grow(&mut self, idx: usize) {
+        if self.db.address_map_entries.len() <= idx {
+            self.db
+                .address_map_entries
+                .resize_with(idx + 1, || AddressEntry::default());
+        }
+    }
+
     pub fn resize(&mut self) -> Result<(), ()> {
         // let total_used = self.total_used
         //     - ((self.db.address_map_entries.capacity() * AddressEntry::BYTE_SIZE) + Self::PADDING);
@@ -160,14 +168,6 @@ impl AddressMap {
             self.insert_entry(entry)?;
         }
         Ok(())
-    }
-
-    pub fn check_or_grow(&mut self, idx: usize) {
-        if self.db.address_map_entries.len() <= idx {
-            self.db
-                .address_map_entries
-                .resize_with(idx + 1, || AddressEntry::default());
-        }
     }
 
     fn insert_entry(&mut self, entry: AddressEntry) -> Result<&AddressEntry, ()> {
@@ -201,6 +201,7 @@ impl AddressMap {
     pub fn insert_allocation(&mut self, size: usize) -> Result<&AddressEntry, ()> {
         self.db.sync_address_map()?;
         let address = self.db.freed_ranges.range(size..).next();
+        eprintln!(">><{:#?}", self.db.freed_ranges);
         eprintln!(">><{:#?}", address);
 
         let address = address.map(|entry| *entry.1).unwrap_or({
@@ -242,6 +243,7 @@ impl AddressMap {
     }
 
     pub fn get(&mut self, uuid: &UUID) -> Result<Option<&AddressEntry>, ()> {
+        eprintln!("{:#?}", self.db.freed_ranges);
         self.db.sync_address_map()?;
         let mut idx = self.uuid_idx(uuid);
         if idx >= self.db.address_map_entries.len() {

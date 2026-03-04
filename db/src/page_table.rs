@@ -201,16 +201,16 @@ impl AddressMap {
     pub fn insert_allocation(&mut self, size: usize) -> Result<&AddressEntry, ()> {
         self.db.sync_address_map()?;
         let address = self.db.freed_ranges.range(size..).next();
-        eprintln!(">><{:#?}", self.db.freed_ranges);
-        eprintln!(">><{:#?}", address);
+        // eprintln!(">><{:#?}", self.db.freed_ranges);
+        // eprintln!(">><{:#?}", address);
 
         let address = address.map(|entry| *entry.1).unwrap_or({
             let address = self.db.total_used;
-            eprintln!("{}", address);
+            // eprintln!("{}", address);
             self.db.set_total_used(address + size)?;
             address
         });
-        eprintln!(">>{:#?}", address);
+        // eprintln!(">>{:#?}", address);
 
         let mut attempts = 0;
         let uuid = loop {
@@ -243,7 +243,7 @@ impl AddressMap {
     }
 
     pub fn get(&mut self, uuid: &UUID) -> Result<Option<&AddressEntry>, ()> {
-        eprintln!("{:#?}", self.db.freed_ranges);
+        // eprintln!("{:#?}", self.db.freed_ranges);
         self.db.sync_address_map()?;
         let mut idx = self.uuid_idx(uuid);
         if idx >= self.db.address_map_entries.len() {

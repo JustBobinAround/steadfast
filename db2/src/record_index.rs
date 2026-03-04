@@ -65,9 +65,13 @@ impl AddressEntry {
 }
 
 pub enum IndexErr {
-    NeedsResize,
     FailedToFetchUUID,
     FailedToFetchSysTime,
+}
+
+pub enum EntryType {
+    Normal(AddressEntry),
+    NeedsResize(AddressEntry),
 }
 
 pub struct RecordIndex {
@@ -95,10 +99,12 @@ impl RecordIndex {
         }
     }
 
-    fn insert_entry(&mut self, entry: AddressEntry) -> Result<AddressEntry, IndexErr> {
+    fn insert_entry(&mut self, entry: AddressEntry) -> Result<EntryType, IndexErr> {
         // self.db.sync_address_map()?;
+        let mut needs_resize = false;
         if self.entries.len() > self.entries.capacity() / 2 {
             self.resize()?;
+            needs_resize = true;
         }
         let mut idx = self.uuid_idx(&entry.uuid);
         let idx = loop {
@@ -106,6 +112,7 @@ impl RecordIndex {
                 idx += 1;
                 if idx >= self.entries.len() {
                     self.resize()?;
+                    needs_resize = true;
                 }
             } else {
                 break idx;
@@ -114,12 +121,16 @@ impl RecordIndex {
 
         self.entries[idx] = entry;
 
-        Ok(entry)
+        if needs_resize {
+            Ok(EntryType::NeedsResize(entry))
+        } else {
+            Ok(EntryType::Normal(entry))
+        }
     }
 
     const MAX_ATTEMPTS: u8 = 5;
 
-    pub fn insert_allocation(&mut self, last_file_offset: usize) -> Result<AddressEntry, IndexErr> {
+    pub fn insert_allocation(&mut self, last_file_offset: usize) -> Result<EntryType, IndexErr> {
         let mut attempts = 0;
         let uuid = loop {
             let uuid = UUID::rand_v7().map_err(|_| IndexErr::FailedToFetchUUID)?;
@@ -160,7 +171,7 @@ impl RecordIndex {
         &mut self,
         uuid: UUID,
         last_file_offset: usize,
-    ) -> Result<AddressEntry, IndexErr> {
+    ) -> Result<EntryType, IndexErr> {
         let last_update = Self::current_time()? as usize;
         let entry = AddressEntry {
             uuid,
@@ -173,6 +184,7 @@ impl RecordIndex {
 
     pub fn resize(&mut self) -> Result<(), IndexErr> {
         let mut entries = Vec::with_capacity(self.entries.capacity() * 2);
+        entries.resize_with(self.entries.capacity() * 2, || AddressEntry::default());
         std::mem::swap(&mut self.entries, &mut entries);
         for entry in entries {
             self.insert_entry(entry)?;

@@ -4,4 +4,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-uuid = {path="../uuid"}
+uuid = {path = "../uuid"}
+json = {path = "../json"}

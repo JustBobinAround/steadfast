@@ -75,17 +75,25 @@
 //     Ok(html! {}.into())
 // }
 
+use uuid::UUID;
+
 // #[zero::main]
 fn main() -> Result<(), ()> {
-    let mut am = db::page_table::AddressMap::new("testing.db")?;
-    let entry = am.insert_allocation(64).expect("entry").clone();
-    eprintln!("{:#?}", entry);
-    eprintln!("=====================================");
-    // eprintln!("{:#?}", am);
-    eprintln!("{:#?}", am.remove_allocation(&entry.uuid));
-    eprintln!("=====================================");
-    eprintln!("{:#?}", am.get(&entry.uuid));
-    eprintln!("=====================================");
+    let uuid = UUID::rand_v7().unwrap();
+    let uuid = UUID::from_u128(2143632338105341657670967034281843051);
+
+    let db_file = db::Database::open_db_file("./testing.zero_db").map_err(|_| ())?;
+    let mut am = db::Database::new(&db_file).map_err(|_| ())?;
+    am.append_entry(uuid, b"just a test").unwrap();
+    eprintln!("{:#?}", am.read_entry(uuid).unwrap());
+    // let entry = am.insert_allocation(64).expect("entry").clone();
+    // eprintln!("{:#?}", entry);
+    // eprintln!("=====================================");
+    // // eprintln!("{:#?}", am);
+    // eprintln!("{:#?}", am.remove_allocation(&entry.uuid));
+    // eprintln!("=====================================");
+    // eprintln!("{:#?}", am.get(&entry.uuid));
+    // eprintln!("=====================================");
     // eprintln!("{:#?}", am);
     Ok(())
 }

@@ -6,13 +6,6 @@ version = 4
 name = "db"
 version = "0.1.0"
 dependencies = [
- "uuid",
-]
-
-[[package]]
-name = "db2"
-version = "0.1.0"
-dependencies = [
  "json",
  "uuid",
 ]

@@ -5,7 +5,7 @@ edition = "2024"
 
 [workspace]
 resolver = "3"
-members = ["db", "db2", "json", "macros", "parsing", "rand", "serializer", "testing_bin", "uuid"]
+members = ["db", "json", "macros", "parsing", "rand", "serializer", "testing_bin", "uuid"]
 
 [dependencies]
 macros = {path="./macros"}

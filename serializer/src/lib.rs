@@ -1,33 +1,7 @@
+mod data_holder;
+
+pub use crate::data_holder::{DataHolder, PrimType};
 use std::{collections::HashMap, str::FromStr};
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum PrimType {
-    Bool,
-    Char,
-    F32,
-    F64,
-    I8,
-    I16,
-    I32,
-    I64,
-    I128,
-    Isize,
-    U8,
-    U16,
-    U32,
-    U64,
-    U128,
-    Usize,
-    String,
-    None,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum DataHolder {
-    Primitive { ty: PrimType, val: String },
-    Struct(HashMap<String, DataHolder>),
-    Array(Vec<DataHolder>),
-}
 
 // impl DataHolder {
 //     pub fn from_map
@@ -41,18 +15,12 @@ macro_rules! impl_primitive_serialize {
     ($name: expr, $t:ty) => {
         impl Serialize for $t {
             fn serialize(self) -> DataHolder {
-                DataHolder::Primitive {
-                    ty: $name,
-                    val: self.to_string(),
-                }
+                DataHolder::Primitive($name(self))
             }
         }
         impl Serialize for &$t {
             fn serialize(self) -> DataHolder {
-                DataHolder::Primitive {
-                    ty: $name,
-                    val: self.to_string(),
-                }
+                DataHolder::Primitive($name(self.clone()))
             }
         }
     };
@@ -87,13 +55,13 @@ pub trait Deserialize: Sized {
 }
 
 macro_rules! impl_primitive_deserialize {
-    ($t:ty) => {
+    ($prim_ty: ident, $t:ty) => {
         impl Deserialize for $t {
             fn deserialize(dh: DataHolder) -> Result<Self, ()> {
                 match dh {
-                    DataHolder::Primitive { ty: _, val } => match Self::from_str(&val) {
-                        Ok(s) => Ok(s),
-                        Err(_) => Err(()),
+                    DataHolder::Primitive(ty) => match ty {
+                        PrimType::$prim_ty(val) => Ok(val),
+                        _ => Err(()),
                     },
                     _ => Err(()),
                 }
@@ -113,27 +81,27 @@ macro_rules! impl_primitive_deserialize {
     };
 }
 
-impl_primitive_deserialize!(bool);
-impl_primitive_deserialize!(char);
-impl_primitive_deserialize!(f32);
-impl_primitive_deserialize!(f64);
-impl_primitive_deserialize!(i8);
-impl_primitive_deserialize!(i16);
-impl_primitive_deserialize!(i32);
-impl_primitive_deserialize!(i64);
-impl_primitive_deserialize!(i128);
-impl_primitive_deserialize!(isize);
-impl_primitive_deserialize!(u8);
-impl_primitive_deserialize!(u16);
-impl_primitive_deserialize!(u32);
-impl_primitive_deserialize!(u64);
-impl_primitive_deserialize!(u128);
-impl_primitive_deserialize!(usize);
+impl_primitive_deserialize!(Bool, bool);
+impl_primitive_deserialize!(Char, char);
+impl_primitive_deserialize!(F32, f32);
+impl_primitive_deserialize!(F64, f64);
+impl_primitive_deserialize!(I8, i8);
+impl_primitive_deserialize!(I16, i16);
+impl_primitive_deserialize!(I32, i32);
+impl_primitive_deserialize!(I64, i64);
+impl_primitive_deserialize!(I128, i128);
+impl_primitive_deserialize!(Isize, isize);
+impl_primitive_deserialize!(U8, u8);
+impl_primitive_deserialize!(U16, u16);
+impl_primitive_deserialize!(U32, u32);
+impl_primitive_deserialize!(U64, u64);
+impl_primitive_deserialize!(U128, u128);
+impl_primitive_deserialize!(Usize, usize);
 
 impl Deserialize for String {
     fn deserialize(dh: DataHolder) -> Result<Self, ()> {
         match dh {
-            DataHolder::Primitive { ty: _, val } => Ok(val),
+            DataHolder::Primitive(PrimType::String(val)) => Ok(val),
             _ => Err(()),
         }
     }

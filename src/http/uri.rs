@@ -400,16 +400,33 @@ impl Default for RequestQuery {
 impl Display for RequestQuery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.parameters {
-            DataHolder::Primitive { ty: _, val: _ } => {}
+            DataHolder::Primitive(_) => {}
             DataHolder::Array(_) => {}
             DataHolder::Struct(ref s) => {
                 for (k, v) in s.iter() {
                     match v {
-                        DataHolder::Primitive { ty: _, val } => {
-                            writeln!(f, "{}:{},", k, val)?;
-                        }
-                        _ => {}
-                    }
+                        DataHolder::Primitive(ty) => match ty {
+                            PrimType::Bool(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::Char(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::F32(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::F64(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::I8(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::I16(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::I32(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::I64(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::I128(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::Isize(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::U8(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::U16(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::U32(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::U64(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::U128(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::Usize(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::String(val) => writeln!(f, "{}:{},", k, val),
+                            PrimType::None => writeln!(f, "{}:null", k,),
+                        },
+                        _ => Ok(()),
+                    }?
                 }
             }
         }
@@ -421,7 +438,7 @@ impl Display for RequestQuery {
 impl RequestQuery {
     fn sorted_keys(&self) -> Vec<&String> {
         match &self.parameters {
-            DataHolder::Array(_) | DataHolder::Primitive { ty: _, val: _ } => Vec::new(),
+            DataHolder::Array(_) | DataHolder::Primitive(_) => Vec::new(),
             DataHolder::Struct(s) => {
                 let mut keys: Vec<&String> = s.keys().collect();
                 keys.sort();
@@ -480,13 +497,7 @@ impl<R: Read> Parsable<R> for RequestQuery {
                 }
             }
 
-            parameters.insert(
-                key,
-                DataHolder::Primitive {
-                    ty: serializer::PrimType::String,
-                    val,
-                },
-            );
+            parameters.insert(key, DataHolder::Primitive(PrimType::String(val)));
             if parser.matches(|c| c == b'#' || c.is_ascii_whitespace()) {
                 break;
             } else {
@@ -773,10 +784,7 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(
             String::from("some_param"),
-            DataHolder::Primitive {
-                ty: PrimType::String,
-                val: String::from("some_val"),
-            },
+            DataHolder::Primitive(PrimType::String(String::from("some_val"))),
         );
 
         let map = DataHolder::Struct(map);
@@ -791,24 +799,15 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(
             String::from("some_param"),
-            DataHolder::Primitive {
-                ty: PrimType::String,
-                val: String::from("some_val"),
-            },
+            DataHolder::Primitive(PrimType::String(String::from("some_val"))),
         );
         map.insert(
             String::from("some_param2"),
-            DataHolder::Primitive {
-                ty: PrimType::String,
-                val: String::from("some_val"),
-            },
+            DataHolder::Primitive(PrimType::String(String::from("some_val"))),
         );
         map.insert(
             String::from("some_param3"),
-            DataHolder::Primitive {
-                ty: PrimType::String,
-                val: String::from("val"),
-            },
+            DataHolder::Primitive(PrimType::String(String::from("val"))),
         );
         let map = DataHolder::Struct(map);
         assert_eq!(
@@ -822,24 +821,15 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(
             String::from("some_param"),
-            DataHolder::Primitive {
-                ty: PrimType::String,
-                val: String::from("some val"),
-            },
+            DataHolder::Primitive(PrimType::String(String::from("some val"))),
         );
         map.insert(
             String::from("some_param2"),
-            DataHolder::Primitive {
-                ty: PrimType::String,
-                val: String::from("some_val"),
-            },
+            DataHolder::Primitive(PrimType::String(String::from("some_val"))),
         );
         map.insert(
             String::from("some_param3"),
-            DataHolder::Primitive {
-                ty: PrimType::String,
-                val: String::from("val"),
-            },
+            DataHolder::Primitive(PrimType::String(String::from("val"))),
         );
         let map = DataHolder::Struct(map);
         assert_eq!(
@@ -865,10 +855,7 @@ mod tests {
         let mut parameters = HashMap::new();
         parameters.insert(
             String::from("with"),
-            DataHolder::Primitive {
-                ty: PrimType::String,
-                val: String::from("query"),
-            },
+            DataHolder::Primitive(PrimType::String(String::from("query"))),
         );
         let parameters = DataHolder::Struct(parameters);
         assert_eq!(

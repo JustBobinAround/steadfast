@@ -7,28 +7,32 @@ pub struct JsonVal {
     data: DataHolder,
 }
 
-fn print_prim_type(
-    ty: &PrimType,
-    val: &String,
-    f: &mut std::fmt::Formatter<'_>,
-) -> std::fmt::Result {
+fn print_prim_type(ty: &PrimType, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match ty {
-        PrimType::Bool => {
-            if val == "true" {
-                write!(f, "true")
-            } else {
-                write!(f, "false")
-            }
-        }
-        PrimType::String | PrimType::Char => write!(f, "\"{}\"", val),
+        PrimType::Bool(bool) => write!(f, "{}", bool),
+        PrimType::Char(char) => write!(f, "{}", char),
+        PrimType::F32(f32) => write!(f, "{}", f32),
+        PrimType::F64(f64) => write!(f, "{}", f64),
+        PrimType::I8(i8) => write!(f, "{}", i8),
+        PrimType::I16(i16) => write!(f, "{}", i16),
+        PrimType::I32(i32) => write!(f, "{}", i32),
+        PrimType::I64(i64) => write!(f, "{}", i64),
+        PrimType::I128(i128) => write!(f, "{}", i128),
+        PrimType::Isize(isize) => write!(f, "{}", isize),
+        PrimType::U8(u8) => write!(f, "{}", u8),
+        PrimType::U16(u16) => write!(f, "{}", u16),
+        PrimType::U32(u32) => write!(f, "{}", u32),
+        PrimType::U64(u64) => write!(f, "{}", u64),
+        PrimType::U128(u128) => write!(f, "{}", u128),
+        PrimType::Usize(usize) => write!(f, "{}", usize),
+        PrimType::String(string) => write!(f, "{}", string),
         PrimType::None => write!(f, "null"),
-        _ => write!(f, "{}", val),
     }
 }
 
 fn print_dataholder(data_holder: &DataHolder, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match data_holder {
-        DataHolder::Primitive { ty, val } => print_prim_type(ty, val, f),
+        DataHolder::Primitive(ty) => print_prim_type(ty, f),
         DataHolder::Array(elements) => {
             write!(f, "[")?;
             let len = elements.len();
@@ -94,22 +98,20 @@ fn parse_number<R: Read>(parser: &mut Parser<R>, has_minus: bool) -> ParseResult
     }
 
     if is_float {
-        // let f = s.parse::<f64>().map_err(|_| ParseErr::FailedToParseNum {
-        //     found: s,
-        //     radix: 10,
-        // })?;
+        let f = s.parse::<f64>().map_err(|_| ParseErr::FailedToParseNum {
+            found: s,
+            radix: 10,
+        })?;
         Ok(JsonVal {
-            data: DataHolder::Primitive {
-                ty: PrimType::F64,
-                val: s,
-            },
+            data: DataHolder::Primitive(PrimType::F64(f)),
         })
     } else {
+        let i = s.parse::<i64>().map_err(|_| ParseErr::FailedToParseNum {
+            found: s,
+            radix: 10,
+        })?;
         Ok(JsonVal {
-            data: DataHolder::Primitive {
-                ty: PrimType::I64,
-                val: s,
-            },
+            data: DataHolder::Primitive(PrimType::I64(i)),
         })
     }
 }
@@ -121,10 +123,7 @@ impl<R: Read> Parsable<R> for JsonVal {
             let s = parser.consume_str_lit();
             parser.consume_or_err(|b| b == b'"')?;
             Ok(JsonVal {
-                data: DataHolder::Primitive {
-                    ty: PrimType::String,
-                    val: s,
-                },
+                data: DataHolder::Primitive(PrimType::String(s)),
             })
         } else if parser.matches(|b| b == b'{') {
             parser.skip_whitespace_and_lines();
@@ -174,22 +173,13 @@ impl<R: Read> Parsable<R> for JsonVal {
             let keyword = parser.consume_while(|this| this.is_alpha());
             match keyword.as_str() {
                 "true" => Ok(JsonVal {
-                    data: DataHolder::Primitive {
-                        ty: PrimType::Bool,
-                        val: String::from("true"),
-                    },
+                    data: DataHolder::Primitive(PrimType::Bool(true)),
                 }),
                 "false" => Ok(JsonVal {
-                    data: DataHolder::Primitive {
-                        ty: PrimType::Bool,
-                        val: String::from("false"),
-                    },
+                    data: DataHolder::Primitive(PrimType::Bool(false)),
                 }),
                 "null" => Ok(JsonVal {
-                    data: DataHolder::Primitive {
-                        ty: PrimType::None,
-                        val: String::from(""),
-                    },
+                    data: DataHolder::Primitive(PrimType::None),
                 }),
                 _ => Err(ParseErr::ExpectedValidKeyword {
                     found: keyword,
@@ -214,52 +204,28 @@ mod tests {
     #[test]
     fn test_parsing() {
         let id = JsonVal {
-            data: DataHolder::Primitive {
-                ty: PrimType::I64,
-                val: String::from("1"),
-            },
+            data: DataHolder::Primitive(PrimType::I64(1)),
         };
         let name = JsonVal {
-            data: DataHolder::Primitive {
-                ty: PrimType::String,
-                val: String::from("Alice"),
-            },
+            data: DataHolder::Primitive(PrimType::String(String::from("Alice"))),
         };
         let active = JsonVal {
-            data: DataHolder::Primitive {
-                ty: PrimType::Bool,
-                val: String::from("true"),
-            },
+            data: DataHolder::Primitive(PrimType::Bool(true)),
         };
         let roles = JsonVal {
             data: DataHolder::Array(vec![
-                DataHolder::Primitive {
-                    ty: PrimType::String,
-                    val: String::from("admin"),
-                },
-                DataHolder::Primitive {
-                    ty: PrimType::String,
-                    val: String::from("editor"),
-                },
+                DataHolder::Primitive(PrimType::String(String::from("admin"))),
+                DataHolder::Primitive(PrimType::String(String::from("editor"))),
             ]),
         };
         let age = JsonVal {
-            data: DataHolder::Primitive {
-                ty: PrimType::F64,
-                val: String::from("29.5"),
-            },
+            data: DataHolder::Primitive(PrimType::F64(29.5)),
         };
         let email = JsonVal {
-            data: DataHolder::Primitive {
-                ty: PrimType::String,
-                val: String::from("alice@example.com"),
-            },
+            data: DataHolder::Primitive(PrimType::String(String::from("alice@example.com"))),
         };
         let theme = JsonVal {
-            data: DataHolder::Primitive {
-                ty: PrimType::String,
-                val: String::from("dark"),
-            },
+            data: DataHolder::Primitive(PrimType::String(String::from("dark"))),
         };
         let mut profile = HashMap::new();
         profile.insert(String::from("age"), age.data);

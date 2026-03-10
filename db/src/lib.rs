@@ -1,3 +1,4 @@
+mod db_bytes;
 use json::IntoJson;
 use std::{
     collections::{BTreeMap, HashMap},

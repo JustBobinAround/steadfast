@@ -1,6 +1,9 @@
 use parsing::{StrParser, prelude::*};
 use serializer::{DataHolder, Deserialize, PrimType, Serialize};
-use std::{collections::HashMap, io::Read};
+use std::{
+    collections::{BTreeMap, HashMap},
+    io::Read,
+};
 // See rfc4627, rfc8259
 #[derive(Debug, PartialEq)]
 pub struct JsonVal {
@@ -129,7 +132,7 @@ impl<R: Read> Parsable<R> for JsonVal {
             parser.skip_whitespace_and_lines();
             parser.consume_or_err(|b| b == b'{')?;
             parser.skip_whitespace_and_lines();
-            let mut map = HashMap::new();
+            let mut map = BTreeMap::new();
             while parser.is_dquote() {
                 parser.consume_or_err(|b| b == b'"')?;
                 let key = parser.consume_str_lit();
@@ -227,14 +230,14 @@ mod tests {
         let theme = JsonVal {
             data: DataHolder::Primitive(PrimType::String(String::from("dark"))),
         };
-        let mut profile = HashMap::new();
+        let mut profile = BTreeMap::new();
         profile.insert(String::from("age"), age.data);
         profile.insert(String::from("email"), email.data);
-        let mut preferences = HashMap::new();
+        let mut preferences = BTreeMap::new();
         preferences.insert(String::from("theme"), theme.data);
         profile.insert(String::from("preferences"), DataHolder::Struct(preferences));
 
-        let mut obj_map = HashMap::new();
+        let mut obj_map = BTreeMap::new();
         obj_map.insert(String::from("id"), id.data);
         obj_map.insert(String::from("name"), name.data);
         obj_map.insert(String::from("active"), active.data);

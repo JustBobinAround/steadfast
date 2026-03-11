@@ -2,7 +2,7 @@ use crate::{
     parsing::{Parsable, ParseErr, ParseResult, Parser, StrParser},
     serializer::{DataHolder, PrimType},
 };
-use std::{cmp::Ordering, collections::HashMap, fmt::Display, io::Read};
+use std::{cmp::Ordering, collections::BTreeMap, fmt::Display, io::Read};
 
 /// Based on rfc3986 Section 3.1
 ///
@@ -392,7 +392,7 @@ pub struct RequestQuery {
 impl Default for RequestQuery {
     fn default() -> Self {
         RequestQuery {
-            parameters: DataHolder::Struct(HashMap::new()),
+            parameters: DataHolder::Struct(BTreeMap::new()),
         }
     }
 }
@@ -451,7 +451,7 @@ impl RequestQuery {
 impl<R: Read> Parsable<R> for RequestQuery {
     fn parse(parser: &mut Parser<R>) -> ParseResult<Self> {
         // parser.consume_or_err(|c| c == b'?')?;
-        let mut parameters = HashMap::new();
+        let mut parameters = BTreeMap::new();
 
         while let Some(c) = parser.peek()
             && c != b'#'
@@ -781,7 +781,7 @@ mod tests {
     #[test]
     fn test_valid_query() {
         let mut parser = StrParser::from_str("some_param=some_val  "); //needs to break on white space for http
-        let mut map = HashMap::new();
+        let mut map = BTreeMap::new();
         map.insert(
             String::from("some_param"),
             DataHolder::Primitive(PrimType::String(String::from("some_val"))),
@@ -796,7 +796,7 @@ mod tests {
         let mut parser = StrParser::from_str(
             "some_param=some_val&some_param2=some_val&some_param3=val#someflag",
         );
-        let mut map = HashMap::new();
+        let mut map = BTreeMap::new();
         map.insert(
             String::from("some_param"),
             DataHolder::Primitive(PrimType::String(String::from("some_val"))),
@@ -818,7 +818,7 @@ mod tests {
         let mut parser = StrParser::from_str(
             "some_param=some+val&some_param2=some_val&some_param3=val#someflag",
         );
-        let mut map = HashMap::new();
+        let mut map = BTreeMap::new();
         map.insert(
             String::from("some_param"),
             DataHolder::Primitive(PrimType::String(String::from("some val"))),
@@ -852,7 +852,7 @@ mod tests {
         let mut parser =
             StrParser::from_str("http://someaddress.com/apath?with=query#some_param=some_val");
 
-        let mut parameters = HashMap::new();
+        let mut parameters = BTreeMap::new();
         parameters.insert(
             String::from("with"),
             DataHolder::Primitive(PrimType::String(String::from("query"))),

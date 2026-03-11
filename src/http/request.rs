@@ -3,7 +3,7 @@ use super::{
     uri::{RequestQuery, URIPath},
 };
 use crate::parsing::prelude::*;
-use std::{collections::HashMap, io::Read};
+use std::{collections::BTreeMap, io::Read};
 
 pub trait FromRequest: Sized {
     fn from_request(a: Request) -> Self;
@@ -226,10 +226,10 @@ impl<R: Read> Parsable<R> for RequestHeaderMap {
     }
 }
 
-pub type RequestHeaders = HashMap<String, RequestHeaderType>;
+pub type RequestHeaders = BTreeMap<String, RequestHeaderType>;
 #[derive(Debug, PartialEq, Eq)]
 pub enum RequestBody {
-    FormData(HashMap<String, String>),
+    FormData(BTreeMap<String, String>),
     Plain(String),
     Empty,
 }
@@ -260,7 +260,7 @@ pub type RequestTuple = (
     URIPath,
     RequestQuery,
     HTTPVersion,
-    HashMap<String, RequestHeaderType>,
+    BTreeMap<String, RequestHeaderType>,
     RequestBody,
 );
 
@@ -316,7 +316,7 @@ impl<R: Read> Parsable<R> for Request {
         parser.skip_whitespace();
         parser.expect_crlf()?;
 
-        let mut headers = HashMap::new();
+        let mut headers = BTreeMap::new();
         let mut body_len = None;
 
         while let Ok(header) = RequestHeaderMap::parse(parser) {
@@ -376,13 +376,13 @@ mod tests {
     fn test_request() {
         let mut parser = StrParser::from_str("/somepath");
         let path = URIPath::parse(&mut parser).unwrap();
-        let mut parser = StrParser::from_str("?some=query");
+        let mut parser = StrParser::from_str("some=query"); // first '?' is consumed in actual request parsing
         let query = RequestQuery::parse(&mut parser).unwrap();
 
         let mut parser = StrParser::from_str(
             "GET /somepath?some=query HTTP/1.1\r\nHost: 127.0.0.1:8000\r\nUser-Agent: curl/8.14.1\r\nAccept: */*",
         );
-        let mut headers = HashMap::new();
+        let mut headers = BTreeMap::new();
         headers.insert(
             String::from("host"),
             RequestHeaderType::RequestHeader(RequestHeader::Host(String::from("127.0.0.1:8000"))),
@@ -411,13 +411,13 @@ mod tests {
     fn test_request_body() {
         let mut parser = StrParser::from_str("/somepath");
         let path = URIPath::parse(&mut parser).unwrap();
-        let mut parser = StrParser::from_str("?some=query");
+        let mut parser = StrParser::from_str("some=query"); // first '?' is consumed in actual request parsing
         let query = RequestQuery::parse(&mut parser).unwrap();
 
         let mut parser = StrParser::from_str(
             "GET /somepath?some=query HTTP/1.1\r\nHost: 127.0.0.1:8000\r\nUser-Agent: curl/8.14.1\r\nContent-Length: 14\r\nAccept: */*\r\n\r\nthis is a test    ",
         );
-        let mut headers = HashMap::new();
+        let mut headers = BTreeMap::new();
         headers.insert(
             String::from("host"),
             RequestHeaderType::RequestHeader(RequestHeader::Host(String::from("127.0.0.1:8000"))),

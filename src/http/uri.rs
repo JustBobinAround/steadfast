@@ -436,14 +436,11 @@ impl Display for RequestQuery {
 }
 
 impl RequestQuery {
+    // TODO there is a way to do ordering without this nonsense
     fn sorted_keys(&self) -> Vec<&String> {
         match &self.parameters {
             DataHolder::Array(_) | DataHolder::Primitive(_) => Vec::new(),
-            DataHolder::Struct(s) => {
-                let mut keys: Vec<&String> = s.keys().collect();
-                keys.sort();
-                keys
-            }
+            DataHolder::Struct(s) => s.keys().collect(),
         }
     }
 }

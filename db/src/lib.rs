@@ -101,7 +101,7 @@ pub enum DatabaseErr {
 
 #[derive(Debug)]
 pub struct Database<'a> {
-    db_file: &'a File,
+    _db_file: &'a File,
     writer: BufWriter<&'a File>,
     reader: BufReader<&'a File>,
     file_size: usize,
@@ -134,6 +134,26 @@ impl<'a> Database<'a> {
         self.index.insert(entry.uuid, entry);
     }
 
+    fn write_bytes_exact(&mut self, bytes: &[u8]) -> Result<(), DatabaseErr> {
+        let bytes_written = self
+            .writer
+            .write(bytes)
+            .map_err(|_| DatabaseErr::FailedToWrite)?;
+        if bytes_written < bytes.len() {
+            Err(DatabaseErr::FailedToWrite)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn flush_writer(&mut self) -> Result<(), DatabaseErr> {
+        self.writer
+            .flush()
+            .map_err(|_| DatabaseErr::FailedToWrite)?;
+
+        Ok(())
+    }
+
     pub fn append_entry(&mut self, uuid: UUID, data: &[u8]) -> Result<(), DatabaseErr> {
         match self.read_entry(uuid) {
             Ok(current_data) => {
@@ -157,21 +177,11 @@ impl<'a> Database<'a> {
         let uuid_bytes = &uuid.as_u128().to_le_bytes();
         let data_len_bytes = &data.len().to_le_bytes();
         let last_update_bytes = &last_update.to_le_bytes();
-        self.writer
-            .write(uuid_bytes)
-            .map_err(|_| DatabaseErr::FailedToWrite)?;
-        self.writer
-            .write(data_len_bytes)
-            .map_err(|_| DatabaseErr::FailedToWrite)?;
-        self.writer
-            .write(last_update_bytes)
-            .map_err(|_| DatabaseErr::FailedToWrite)?;
-        self.writer
-            .write(&data)
-            .map_err(|_| DatabaseErr::FailedToWrite)?;
-        self.writer
-            .flush()
-            .map_err(|_| DatabaseErr::FailedToWrite)?;
+        self.write_bytes_exact(uuid_bytes)?;
+        self.write_bytes_exact(data_len_bytes)?;
+        self.write_bytes_exact(last_update_bytes)?;
+        self.write_bytes_exact(data)?;
+        self.flush_writer()?;
 
         self.insert_entry(entry);
 
@@ -212,37 +222,27 @@ impl<'a> Database<'a> {
         &mut self,
         address: usize,
     ) -> Result<(AddressEntry, usize), DatabaseErr> {
-        self.reader
-            .seek(SeekFrom::Start(address as u64))
-            .map_err(|_| DatabaseErr::FailedToRead)?;
+        self.seek_reader(SeekFrom::Start(address as u64))?;
         self.read_offset = address;
         self.read_next_address_entry()
     }
 
+    fn read_exact<const N: usize>(&mut self) -> Result<[u8; N], DatabaseErr> {
+        let mut buf = [0u8; N];
+        self.reader
+            .read_exact(&mut buf)
+            .map_err(|err| match err.kind() {
+                std::io::ErrorKind::UnexpectedEof => DatabaseErr::EOF,
+                _ => DatabaseErr::FailedToRead,
+            })?;
+
+        Ok(buf)
+    }
+
     fn read_next_address_entry(&mut self) -> Result<(AddressEntry, usize), DatabaseErr> {
-        let mut uuid_bytes = [0u8; Self::UUID_BSIZE];
-        self.reader
-            .read_exact(&mut uuid_bytes)
-            .map_err(|err| match err.kind() {
-                std::io::ErrorKind::UnexpectedEof => DatabaseErr::EOF,
-                _ => DatabaseErr::FailedToRead,
-            })?;
-
-        let mut data_len_bytes = [0u8; Self::DATA_LEN_BSIZE];
-        self.reader
-            .read_exact(&mut data_len_bytes)
-            .map_err(|err| match err.kind() {
-                std::io::ErrorKind::UnexpectedEof => DatabaseErr::EOF,
-                _ => DatabaseErr::FailedToRead,
-            })?;
-
-        let mut last_update_bytes = [0u8; Self::LAST_UPDATE_BSIZE];
-        self.reader
-            .read_exact(&mut last_update_bytes)
-            .map_err(|err| match err.kind() {
-                std::io::ErrorKind::UnexpectedEof => DatabaseErr::EOF,
-                _ => DatabaseErr::FailedToRead,
-            })?;
+        let uuid_bytes = self.read_exact::<{ Database::UUID_BSIZE }>()?;
+        let data_len_bytes = self.read_exact::<{ Database::DATA_LEN_BSIZE }>()?;
+        let last_update_bytes = self.read_exact::<{ Database::LAST_UPDATE_BSIZE }>()?;
 
         let data_len = usize::from_le_bytes(data_len_bytes);
         let uuid = UUID::from_u128(u128::from_le_bytes(uuid_bytes));
@@ -256,6 +256,13 @@ impl<'a> Database<'a> {
         self.read_offset += Self::ENTRY_HEADER_OFFSET;
 
         Ok((entry, data_len))
+    }
+
+    fn seek_reader(&mut self, seek: SeekFrom) -> Result<(), DatabaseErr> {
+        self.reader
+            .seek(seek)
+            .map_err(|_| DatabaseErr::FailedToRead)?;
+        Ok(())
     }
 
     fn read_entry_data(&mut self, data_len: usize) -> Result<Vec<u8>, DatabaseErr> {
@@ -277,17 +284,13 @@ impl<'a> Database<'a> {
         address: usize,
         data_len: usize,
     ) -> Result<Vec<u8>, DatabaseErr> {
-        self.reader
-            .seek(SeekFrom::Start(address as u64))
-            .map_err(|_| DatabaseErr::FailedToRead)?;
+        self.seek_reader(SeekFrom::Start(address as u64))?;
 
         self.read_entry_data(data_len)
     }
 
     fn init_index(mut self) -> Result<Self, DatabaseErr> {
-        self.reader
-            .seek(SeekFrom::Start(0))
-            .map_err(|_| DatabaseErr::FailedToRead)?;
+        self.seek_reader(SeekFrom::Start(0))?;
         self.read_offset = 0;
 
         loop {
@@ -309,7 +312,7 @@ impl<'a> Database<'a> {
         let read_offset = 0;
 
         let db = Database {
-            db_file,
+            _db_file: db_file,
             writer,
             reader,
             file_size,

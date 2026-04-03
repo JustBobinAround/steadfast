@@ -1,12 +1,13 @@
+mod b_tree;
 mod db_bytes;
-use json::IntoJson;
+mod tables;
+use crate::tables::ZeroTable;
+use serializer::{DataHolder, Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
-    os::unix::fs::FileExt,
     path::Path,
-    sync::{Arc, RwLock},
 };
 use uuid::UUID;
 
@@ -16,6 +17,7 @@ pub struct AddressEntry {
     pub uuid: UUID,
     pub address: usize,
     pub last_update: usize,
+    pub table_id: usize,
 }
 
 impl AddressEntry {
@@ -29,6 +31,7 @@ impl AddressEntry {
             uuid,
             address: self.address,
             last_update: self.last_update,
+            table_id: self.table_id,
         }
     }
 
@@ -63,12 +66,16 @@ impl AddressEntry {
             <[u8; 8]>::try_from(&buf[16..24]).expect("guarenteed 16..24 slice failed to convert"),
         );
         let last_update = <usize>::from_le_bytes(
-            <[u8; 8]>::try_from(&buf[24..32]).expect("guarenteed 16..24 slice failed to convert"),
+            <[u8; 8]>::try_from(&buf[24..32]).expect("guarenteed 24..32 slice failed to convert"),
+        );
+        let table_id = <usize>::from_le_bytes(
+            <[u8; 8]>::try_from(&buf[32..40]).expect("guarenteed 32..40 slice failed to convert"),
         );
         Self {
             uuid,
             address,
             last_update,
+            table_id,
         }
     }
 }
@@ -85,6 +92,7 @@ impl Default for AddressEntry {
             },
             address: 0,
             last_update: 0,
+            table_id: 0,
         }
     }
 }
@@ -97,6 +105,8 @@ pub enum DatabaseErr {
     FailedToRead,
     FailedToOpen,
     NoEntryFound,
+    InvalidTableType,
+    FailedToDeserialize,
 }
 
 #[derive(Debug)]
@@ -154,39 +164,46 @@ impl<'a> Database<'a> {
         Ok(())
     }
 
-    pub fn append_entry(&mut self, uuid: UUID, data: &[u8]) -> Result<(), DatabaseErr> {
-        match self.read_entry(uuid) {
+    pub fn append_entry<T: ZeroTable>(&mut self, uuid: UUID, data: T) -> Result<(), DatabaseErr> {
+        match self.read_entry::<T>(uuid) {
             Ok(current_data) => {
-                if &current_data == data {
+                if &current_data == &data {
                     return Ok(());
                 }
             }
             _ => {}
         }
+        let data = data.serialize();
+        let mut buf = Vec::new();
+        data.to_bytes(&mut buf);
         let last_update = Self::current_time()?;
         if uuid.extract_timestamp() > last_update as u64 {
             //time went backwards some how
             return Err(DatabaseErr::TimeWentBackwards);
         }
+        let table_id = T::table_id();
         let entry = AddressEntry {
             uuid,
             address: self.file_size,
             last_update,
+            table_id,
         };
 
         let uuid_bytes = &uuid.as_u128().to_le_bytes();
-        let data_len_bytes = &data.len().to_le_bytes();
+        let data_len_bytes = &buf.len().to_le_bytes();
         let last_update_bytes = &last_update.to_le_bytes();
+        let table_hash_bytes = &table_id.to_le_bytes();
         self.write_bytes_exact(uuid_bytes)?;
         self.write_bytes_exact(data_len_bytes)?;
         self.write_bytes_exact(last_update_bytes)?;
-        self.write_bytes_exact(data)?;
+        self.write_bytes_exact(table_hash_bytes)?;
+        self.write_bytes_exact(&buf)?;
         self.flush_writer()?;
 
         self.insert_entry(entry);
 
         self.file_size +=
-            data.len() + uuid_bytes.len() + data_len_bytes.len() + last_update_bytes.len();
+            &buf.len() + uuid_bytes.len() + data_len_bytes.len() + last_update_bytes.len();
 
         Ok(())
     }
@@ -197,14 +214,22 @@ impl<'a> Database<'a> {
     const ENTRY_HEADER_OFFSET: usize =
         Self::UUID_BSIZE + Self::DATA_LEN_BSIZE + Self::LAST_UPDATE_BSIZE;
 
-    pub fn read_entry(&mut self, uuid: UUID) -> Result<Vec<u8>, DatabaseErr> {
+    pub fn read_entry<T: ZeroTable>(&mut self, uuid: UUID) -> Result<T, DatabaseErr> {
         let address = match self.index.get(&uuid) {
-            Some(address_entry) => address_entry.address,
+            Some(address_entry) => {
+                if address_entry.table_id == T::table_id() {
+                    address_entry.address
+                } else {
+                    return Err(DatabaseErr::InvalidTableType);
+                }
+            }
             None => return Err(DatabaseErr::NoEntryFound),
         };
 
         let (_, data_len) = self.read_address_entry_at(address)?;
-        self.read_entry_data(data_len)
+        let bytes = self.read_entry_data(data_len)?;
+        let dh = DataHolder::from_bytes(&bytes).map_err(|_| DatabaseErr::FailedToDeserialize)?;
+        T::deserialize(dh.1).map_err(|_| DatabaseErr::FailedToDeserialize)
     }
 
     fn index_next_entry(&mut self) -> Result<(), DatabaseErr> {
@@ -243,14 +268,17 @@ impl<'a> Database<'a> {
         let uuid_bytes = self.read_exact::<{ Database::UUID_BSIZE }>()?;
         let data_len_bytes = self.read_exact::<{ Database::DATA_LEN_BSIZE }>()?;
         let last_update_bytes = self.read_exact::<{ Database::LAST_UPDATE_BSIZE }>()?;
+        let table_hash_bytes = self.read_exact::<{ Database::UUID_BSIZE }>()?;
 
         let data_len = usize::from_le_bytes(data_len_bytes);
         let uuid = UUID::from_u128(u128::from_le_bytes(uuid_bytes));
         let last_update = usize::from_le_bytes(last_update_bytes);
+        let table_id = usize::from_le_bytes(last_update_bytes);
         let entry = AddressEntry {
             uuid,
             address: self.read_offset,
             last_update,
+            table_id,
         };
 
         self.read_offset += Self::ENTRY_HEADER_OFFSET;

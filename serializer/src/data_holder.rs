@@ -378,7 +378,7 @@ impl DataHolder {
         }
     }
 
-    fn to_bytes(self, bytes: &mut Vec<u8>) {
+    pub fn to_bytes(self, bytes: &mut Vec<u8>) {
         let code = self.num_code();
         match self {
             Self::Primitive(ty) => {
@@ -415,7 +415,7 @@ impl DataHolder {
         }
     }
 
-    fn from_bytes(bytes: &[u8]) -> Result<(usize, DataHolder), DataHolderErr> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<(usize, DataHolder), DataHolderErr> {
         if bytes.len() == 0 {
             return Err(DataHolderErr::FoundEmptyBytes);
         }

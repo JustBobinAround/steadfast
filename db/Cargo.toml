@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 uuid = {path = "../uuid"}
-json = {path = "../json"}
+serializer = {path = "../serializer"}

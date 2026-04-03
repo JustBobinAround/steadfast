@@ -386,6 +386,7 @@ impl<T: Deserialize> ToQuery for T {
 /// ## Valid Example
 ///
 /// ```rust
+/// use zero::http::{Query, Method};
 /// async fn some_valid_route(
 ///     method: Method,
 ///     Query(s): Query(String)
@@ -395,7 +396,7 @@ impl<T: Deserialize> ToQuery for T {
 /// ```
 /// ## Invalid Example
 ///
-/// ```rust
+/// ```compile_fail
 /// async fn some_invalid_route(
 ///     Query(s): Query(String), // Query must come after method, path, etc.
 ///     method: Method

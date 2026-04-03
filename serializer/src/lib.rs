@@ -7,7 +7,7 @@ use std::{collections::HashMap, str::FromStr};
 //     pub fn from_map
 // }
 
-pub trait Serialize {
+pub trait Serialize: PartialEq {
     fn serialize(self) -> DataHolder;
 }
 
@@ -50,7 +50,7 @@ impl<T: Serialize> Serialize for Vec<T> {
     }
 }
 
-pub trait Deserialize: Sized {
+pub trait Deserialize: Sized + PartialEq {
     fn deserialize(dh: DataHolder) -> Result<Self, ()>;
 }
 

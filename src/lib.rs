@@ -18,6 +18,8 @@ pub use json;
 ///
 /// # Example Usage
 /// ```rust
+/// use zero::http::routing::Router;
+/// use zero::http::server::HttpServer;
 /// #[zero::main]
 /// async fn main() -> Result<(), ()> {  // allows async usage
 ///    let router = Router::new(());

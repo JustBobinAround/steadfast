@@ -82,10 +82,10 @@ fn main() -> Result<(), ()> {
     let uuid = UUID::rand_v7().unwrap();
     let uuid = UUID::from_u128(2143632338105341657670967034281843051);
 
-    let db_file = db::Database::open_db_file("./testing.zero_db").map_err(|_| ())?;
-    let mut am = db::Database::new(&db_file).map_err(|_| ())?;
-    am.append_entry(uuid, b"just a test").unwrap();
-    eprintln!("{:#?}", am.read_entry(uuid).unwrap());
+    // let db_file = db::Database::open_db_file("./testing.zero_db").map_err(|_| ())?;
+    // let mut am = db::Database::new(&db_file).map_err(|_| ())?;
+    // am.append_entry(uuid, "just a test".to_string()).unwrap();
+    // eprintln!("{:#?}", am.read_entry::<String>(uuid).unwrap());
     // let entry = am.insert_allocation(64).expect("entry").clone();
     // eprintln!("{:#?}", entry);
     // eprintln!("=====================================");

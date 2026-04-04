@@ -2,11 +2,18 @@
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SHA256([u32; 8]);
 
-impl SHA256 {
-    pub const W: u32 = 32;
-    pub const M: u64 = 0x100000000;
-    pub const FF: u32 = (Self::M - 1) as u32;
+impl Default for SHA256 {
+    fn default() -> Self {
+        Self(SHA256::H)
+    }
+}
+enum RemainderChunk {
+    One([u8; 64]),
+    Two([u8; 64], [u8; 64]),
+    None,
+}
 
+impl SHA256 {
     /// See NIST FIPS 180-4 Section 4.2.2
     ///
     /// SHA-224 and SHA-256 use the same sequence of sixty-four constant 32-bit
@@ -58,90 +65,108 @@ impl SHA256 {
         (self.0[0] & self.0[1]) ^ (self.0[0] & self.0[2]) ^ (self.0[1] & self.0[2])
     }
 
-    fn apply_segment(mut self, segment: &[u8]) -> Self {
-        let mut w = segment
-            .chunks_exact(4)
+    fn convert_byte_chunk(chunk: &[u8; 64]) -> [u32; 64] {
+        chunk
+            .as_chunks::<4>()
+            .0
+            .iter()
             .enumerate()
             .fold([0; 64], |mut w, (i, chunk)| {
-                w[i] = chunk
-                    .first_chunk::<4>()
-                    .map(|chunk| u32::from_be_bytes(*chunk))
-                    .expect("Exact chunks of 4 somehow failed.");
+                w[i] = u32::from_be_bytes(*chunk);
                 w
-            });
+            })
+    }
 
-        (16..64).fold(&mut w, |w, i| {
+    fn expand_chunk(chunk: &[u8; 64]) -> [u32; 64] {
+        (16..64).fold(Self::convert_byte_chunk(chunk), |mut w, i| {
             w[i] = w[i - 16]
                 .wrapping_add(Self::lower_sigma(w[i - 15], 7, 18, 3))
                 .wrapping_add(w[i - 7])
                 .wrapping_add(Self::lower_sigma(w[i - 2], 17, 19, 10));
             w
-        });
-
-        let mut h = self.0;
-        for i in 0..64 {
-            let t0 = h[7]
-                .wrapping_add(self.upper_sigma(0, 2, 13, 22))
-                .wrapping_add(self.ch())
-                .wrapping_add(Self::K[i])
-                .wrapping_add(w[i]);
-
-            let t1 = self.upper_sigma(4, 6, 11, 26).wrapping_add(self.maj());
-
-            h[7] = h[6];
-            h[6] = h[5];
-            h[5] = h[4];
-            h[4] = h[3].wrapping_add(t0);
-            h[3] = h[2];
-            h[2] = h[1];
-            h[1] = h[0];
-            h[0] = t0.wrapping_add(t1);
-        }
-
-        for (i, v) in self.0.iter_mut().enumerate() {
-            *v = v.wrapping_add(h[i]);
-        }
-
-        self
+        })
     }
 
-    fn pad_data(data: &[u8]) -> [u8; 64] {
-        let mut padded_data = [0; 64];
+    fn apply_sum(&mut self, expanded_chunk: [u32; 64], i: usize) {
+        let t1 = self.0[7]
+            .wrapping_add(self.upper_sigma(4, 6, 11, 25))
+            .wrapping_add(self.ch())
+            .wrapping_add(Self::K[i])
+            .wrapping_add(expanded_chunk[i]);
+
+        let t2 = self.upper_sigma(0, 2, 13, 22).wrapping_add(self.maj());
+
+        self.0[7] = self.0[6];
+        self.0[6] = self.0[5];
+        self.0[5] = self.0[4];
+        self.0[4] = self.0[3].wrapping_add(t1);
+        self.0[3] = self.0[2];
+        self.0[2] = self.0[1];
+        self.0[1] = self.0[0];
+        self.0[0] = t1.wrapping_add(t2);
+    }
+
+    fn apply_chunk(mut self, chunk: &[u8; 64]) -> Self {
+        let expanded_chunk = Self::expand_chunk(chunk);
+
+        let mut h = [0; 8];
+        h.copy_from_slice(&self.0);
+
+        for i in 0..64 {
+            self.apply_sum(expanded_chunk, i);
+        }
+
+        (0..8).zip(h.into_iter()).fold(self, |mut hash, (i, b)| {
+            hash.0[i] = b.wrapping_add(hash.0[i]);
+            hash
+        })
+    }
+
+    fn pad_chunk(chunk: &[u8], total_len: usize) -> RemainderChunk {
+        let bit_len = (total_len as u64) * 8;
+
+        let mut block_1 = [0u8; 64];
+        block_1[..chunk.len()].copy_from_slice(chunk);
+        block_1[chunk.len()] = 0x80;
+
+        if chunk.len() <= 55 {
+            block_1[56..64].copy_from_slice(&bit_len.to_be_bytes());
+            RemainderChunk::One(block_1)
+        } else {
+            let mut block_2 = [0u8; 64];
+            block_2[56..64].copy_from_slice(&bit_len.to_be_bytes());
+            RemainderChunk::Two(block_1, block_2)
+        }
+    }
+
+    fn chunk_data<'a>(data: &'a [u8]) -> (&'a [[u8; 64]], RemainderChunk) {
+        let (chunks, remainder) = data.as_chunks::<64>();
         let data_len = data.len();
-        padded_data[0..data_len].copy_from_slice(data);
-        padded_data[data_len] = 0x80;
-        (data_len as u16).to_be_bytes().iter().enumerate().fold(
-            padded_data,
-            |mut padded_data, (i, b)| {
-                padded_data[data_len - 3 + i] |= b;
-                padded_data
-            },
-        )
+        if data_len % 64 != 0 || data_len % 128 != 0 || data_len == 0 {
+            (chunks, Self::pad_chunk(remainder, data_len))
+        } else {
+            (chunks, RemainderChunk::None)
+        }
     }
 
     pub fn new(data: &[u8]) -> Self {
-        let mut hash = if data.len() == 0 {
-            let mut blank_data = [0; 64];
-            blank_data[0] = 1;
-            Self(Self::H).apply_segment(&blank_data)
-        } else {
-            data.chunks(64).fold(Self(Self::H), |hash, chunk| {
-                if chunk.len() < 64 {
-                    hash.apply_segment(&Self::pad_data(chunk))
-                } else {
-                    hash.apply_segment(chunk)
-                }
-            })
-        };
-        for h in hash.0.iter_mut() {
-            *h = h.to_be();
+        let (chunks, remainder_chunks) = Self::chunk_data(data);
+        let hash = chunks
+            .iter()
+            .fold(SHA256::default(), |hash, chunk| hash.apply_chunk(chunk));
+
+        match remainder_chunks {
+            RemainderChunk::One(chunk) => hash.apply_chunk(&chunk),
+            RemainderChunk::Two(chunk_a, chunk_b) => {
+                hash.apply_chunk(&chunk_a).apply_chunk(&chunk_b)
+            }
+            RemainderChunk::None => hash,
         }
-        hash
     }
 
     pub fn hex_digest(&self) -> String {
         format!(
-            "{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}",
+            "{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}{:08x}",
             self.0[0], self.0[1], self.0[2], self.0[3], self.0[4], self.0[5], self.0[6], self.0[7],
         )
     }
@@ -155,7 +180,6 @@ mod tests {
     fn it_works() {
         let hash = SHA256::new(b"");
 
-        // Doing something wrong somehow :(
         assert_eq!(
             hash.hex_digest(),
             String::from("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")

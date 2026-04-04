@@ -1,6 +1,6 @@
-# ZERO
+# STEADFAST
 
-The ZERO stack is my personal web stack. The goal of this stack is to
+The STEADFAST stack is my personal web stack. The goal of this stack is to
 have a dependency free implementation of everything that I normally need for web
 and application development. This library contains a wide variety of tools:
 

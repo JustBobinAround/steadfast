@@ -386,7 +386,7 @@ impl<T: Deserialize> ToQuery for T {
 /// ## Valid Example
 ///
 /// ```rust
-/// use zero::http::{Query, Method};
+/// use steadfast::http::{Query, Method};
 /// async fn some_valid_route(
 ///     method: Method,
 ///     Query(s): Query<String>
@@ -498,11 +498,11 @@ impl<T: Send + Sync> Router<T> {
         self.routes.insert((m, s), f.into_endpoint());
         self
     }
-    pub fn include_zero_js(self) -> Self {
+    pub fn include_steadfast_js(self) -> Self {
         async fn include_zero() -> ResponseResult {
-            Ok(include_str!("../zero.js").into())
+            Ok(include_str!("../steadfast.js").into())
         }
-        self.route(Method::Get, "/zero.js", include_zero)
+        self.route(Method::Get, "/steadfast.js", include_zero)
     }
 
     pub async fn apply_request(&self, req: Request) -> FullResponse {

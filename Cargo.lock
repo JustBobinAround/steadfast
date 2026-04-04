@@ -45,24 +45,7 @@ name = "sha"
 version = "0.1.0"
 
 [[package]]
-name = "testing_bin"
-version = "0.1.0"
-dependencies = [
- "db",
- "rand",
- "uuid",
- "zero",
-]
-
-[[package]]
-name = "uuid"
-version = "0.1.0"
-dependencies = [
- "rand",
-]
-
-[[package]]
-name = "zero"
+name = "steadfast"
 version = "0.1.0"
 dependencies = [
  "db",
@@ -71,4 +54,21 @@ dependencies = [
  "parsing",
  "serializer",
  "uuid",
+]
+
+[[package]]
+name = "testing_bin"
+version = "0.1.0"
+dependencies = [
+ "db",
+ "rand",
+ "steadfast",
+ "uuid",
+]
+
+[[package]]
+name = "uuid"
+version = "0.1.0"
+dependencies = [
+ "rand",
 ]

@@ -17,7 +17,7 @@ pub use json;
 /// This macro is written pretty badly right now. See the macros workspace for implementation details
 ///
 /// # Example Usage
-/// ```rust
+/// ```text
 /// use zero::http::routing::Router;
 /// use zero::http::server::HttpServer;
 /// #[zero::main]

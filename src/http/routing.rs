@@ -389,7 +389,7 @@ impl<T: Deserialize> ToQuery for T {
 /// use zero::http::{Query, Method};
 /// async fn some_valid_route(
 ///     method: Method,
-///     Query(s): Query(String)
+///     Query(s): Query<String>
 /// ) -> Result<(), ()> {
 ///     Ok(())
 /// }

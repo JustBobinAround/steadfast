@@ -1,5 +1,6 @@
 mod b_tree;
 mod db_bytes;
+mod field_map;
 mod tables;
 use crate::tables::ZeroTable;
 use serializer::{DataHolder, Deserialize, Serialize};

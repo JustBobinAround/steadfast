@@ -7,6 +7,7 @@ pub mod uri;
 use crate::parsing::StrParser;
 use crate::parsing::prelude::*;
 use crate::stream_writer::prelude::*;
+pub use request::Method;
 use request::RequestBody;
 pub use routing::Query;
 use std::collections::HashMap;

@@ -7,10 +7,10 @@ impl Default for SHA256 {
         Self(SHA256::H)
     }
 }
+#[derive(Debug)]
 enum RemainderChunk {
     One([u8; 64]),
     Two([u8; 64], [u8; 64]),
-    None,
 }
 
 impl SHA256 {
@@ -142,11 +142,7 @@ impl SHA256 {
     fn chunk_data<'a>(data: &'a [u8]) -> (&'a [[u8; 64]], RemainderChunk) {
         let (chunks, remainder) = data.as_chunks::<64>();
         let data_len = data.len();
-        if data_len % 64 != 0 || data_len % 128 != 0 || data_len == 0 {
-            (chunks, Self::pad_chunk(remainder, data_len))
-        } else {
-            (chunks, RemainderChunk::None)
-        }
+        (chunks, Self::pad_chunk(remainder, data_len))
     }
 
     pub fn new(data: &[u8]) -> Self {
@@ -160,7 +156,6 @@ impl SHA256 {
             RemainderChunk::Two(chunk_a, chunk_b) => {
                 hash.apply_chunk(&chunk_a).apply_chunk(&chunk_b)
             }
-            RemainderChunk::None => hash,
         }
     }
 
@@ -176,13 +171,74 @@ impl SHA256 {
 mod tests {
     use super::*;
 
+    //code used to generate tests:
+    // import hashlib
+    // import random
+    // import string
+
+    // def generate_random_string(length):
+    //     characters = string.ascii_letters + string.digits
+    //     return ''.join(random.choices(characters, k=length))
+
+    // for i in range(0,1000):
+    //     text = generate_random_string(i)
+    //     hash_object = hashlib.sha256(text.encode())
+    //     hex_dig = hash_object.hexdigest()
+    //     print(f"assert_eq!(\n\tSHA256::new(b\"{text}\").hex_digest(),\n\tString::from(\"{hex_dig}\")\n);")
+
     #[test]
     fn it_works() {
-        let hash = SHA256::new(b"");
-
         assert_eq!(
-            hash.hex_digest(),
+            SHA256::new(b"").hex_digest(),
             String::from("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-        )
+        );
+        assert_eq!(
+            SHA256::new(b"4").hex_digest(),
+            String::from("4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a")
+        );
+        assert_eq!(
+            SHA256::new(b"iX").hex_digest(),
+            String::from("8a2aeda2d8fd5cd26ce72400df8141b0f56ae47b4073ca8b2864b51535cc6347")
+        );
+        assert_eq!(
+            SHA256::new(b"o6n").hex_digest(),
+            String::from("a58785e671d7c363d94c718302df8f3bd6325ae657eb60b8c1f537f2850aafa4")
+        );
+        assert_eq!(
+            SHA256::new(b"xn5Q").hex_digest(),
+            String::from("be6737164bccf521660ba7777d3871cd64405c4279a2469e2c9c734174986ef4")
+        );
+        assert_eq!(
+            SHA256::new(b"nwW1q").hex_digest(),
+            String::from("16550e202dd6084f2e8bc021a25f20bf5f277cf997c4031e39729b85f09de304")
+        );
+        assert_eq!(
+            SHA256::new(b"ksqtKM").hex_digest(),
+            String::from("b63090107e4f2acc9e3d794ee28f0b5ed37acc18a13d2062b1e393b5e7ef7152")
+        );
+        assert_eq!(
+        	SHA256::new(b"9qdBjVJjtnh1EtHa2cNGVxc4JBdm7ed6MzwGknwmXs9fwv8sE3iGd2FkcUZgX9dXFmF5a7if9ceYUCf7G7n0TnsIyZthzldLCqagwezUkjM46QPVXuQGkYLyXC7jOo").hex_digest(),
+        	String::from("d74e5ba452404f0e10449da657258e88f8bd068281000380bb713e44253a2427")
+        );
+        assert_eq!(
+        	SHA256::new(b"MPF8yualKiAnW8H0Yf7ozzwSrNngM8nxRyX2Qo6TFBEs39HI0CNEBHoFeUFTAOjZlpQRzFdMFWJgVM7R3dQJMQSEDS8Lw8q5eDUwyHCdKGNmLaqhO06ovljLclHZtJn").hex_digest(),
+        	String::from("69a6cc9afb3689131d245959e9161c0fcdece04b43db6bc4bda5de2f336414a8")
+        );
+        assert_eq!(
+        	SHA256::new(b"eHUXmyciHhQ5BbISTpSoZWyFckhSpKlJTEWADn84eMTr7E8ssjmFxCSU2xkXAZSwr3ZKqfxnJCyvhWZP343QmSWQBVXeRLI0DaRSjVPLi99M1hMhCMTdYZoiL2Sk3Ily").hex_digest(),
+        	String::from("0ea97fb7d25faa21a13929e5d5603db0e9c20ea47ff8ea3c225e4cb61672b463")
+        );
+        assert_eq!(
+        	SHA256::new(b"Ixcf07J57gC9pXBXDJXwjUYY3QOvx3YuwnnDcvr17ZLhZW1mPwiZFgfhKeBRDnb733qSh4Cpy4RaaOqKtPTGhz0Au4UAOjuKqULzQwxp6xutrEoYmKVf6ZKfqIxjXEzuo").hex_digest(),
+        	String::from("79f1a2310f44abfdfe7513d5192284d0ed89b602ca133b414bd92a9028aab22e")
+        );
+        assert_eq!(
+        	SHA256::new(b"oYJZ1F0FN4SfmCb2HD9jaNGhq2tXfXTtE76fS59GvDK1uawWKzqzuXM51OgQoT8kejr0nLrNk0bhyFmH7zvJR3Ev73nWxwa8iqlNgO1XqK3xyvHblw3g2Xh48jL3QS0blVByt8IdL79DoGm2aPOwHboJpxuIqr9hMbxZvr3wYx").hex_digest(),
+        	String::from("2dbddf548c8fd6ba69c7fe64ac5496f4f2bf2a6bea81d7477d274d7a63604939")
+        );
+        assert_eq!(
+        	SHA256::new(b"gPnkQ47DonIUG9SpPjxRIPhncXYBVer5zO736Z7JUbUNVI5Na3tt75MmoOZ9TfwP8vK8Pt9wzGz9GxmIpgreNH40gIa1SbN5xVIKnhWMbBiEKdV9gJ8SMMhrramc6oTHDrsEzHnkMpmxUKBp1qqmGJdUHmqpAXJeU6RtcJwfY03MAmDFTW3LzMG1ZIsXvjIuXnVUJKXhVUjqq7BM07qpkAVCp6Wp2NsOC9SBgtJ05iBNLmCp1IKHCgTO4Qsa7xJHr4YqCZSKP3Jh2teRLBDADVXG3PIMpbx0xPaLABK48fpKdVNZwlbOAsAjRP1Rso8rDHZq6Vwya0GFql2UisZ9nRe9vZKkNrGWayWbRiHf8CYUqoFJdGw6XAJYDZ2tZWpUpIQ90gkYJkXfsW8fPAE4oDjBKQQDmKiwTW1DlzgezMFhpBpmwaNqthVmrZZGgkOTCOi58Rs6KhpGzJSqRANnPQ2zObrFPIJSnBkuvS1Dvk0DuM9Cu2ZiJ8OSYH1Z0D2K5hYP3vBnH4lzTU49LRtosCosfOtHxs9ljT9YUotlYkx0heVQxsOfDBzF1lqwSUY7cmjxn4RkesVB8xeM2c6mcAu3Kw3M5jsqBqLocZkF20eZ3tUi0szlpVtmJ9ckiWeGBF031pJDnIkMQdoaF7icTnmW2soqMrvtIBoC6j0nRXPqeDOLl7Usm0cKCZO5XApXMUmMdW96MV2YtBtCDTwiQNGIZejVu7M8noqmvHYHeAFPXIN3dPGau12XGpdCI1u1kqewwfKbHD0bHzO9HMvIpnmKsQ1nc1COidlRZk5tG792u0hjoReDJ22m18UIGv5Y2kApFOci0tdYrNlP3LwiM1IaxElUST0fGxcQkNeJUVHDc4Iyo4RWjnLvlYPC3epsdNkiCu5y0HS5xvHQfvlASdSkyCQokcdXHqVRTGNx0JxiTqiVsUWk67wLBedkRk4eJqMZBH4XRK8Oq99C15zJFGxHl9cY5N23Qdvnqio").hex_digest(),
+        	String::from("ef16b2199239b2ddedda5d158ada01405527de9c3aa7dcc3b87cc8e65f5d1796")
+        );
     }
 }

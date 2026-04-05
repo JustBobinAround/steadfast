@@ -4,7 +4,7 @@ use super::{
     response::{Response as FullResponse, ResponseHeaderType, StatusCode},
     uri::{RequestQuery, URIPath},
 };
-use crate::{html::Markup, http::ToMessageHeader, serializer::Deserialize};
+use crate::{html::Markup, http::ToMessageHeader, steadfast_serializer::Deserialize};
 use std::{
     collections::{HashMap, HashSet},
     future::Future,
@@ -456,7 +456,7 @@ impl<T, A: ToBody> Extract<T, RequestBody, RequestBody> for Body<A> {
     }
 }
 
-macros::impl_extract_permutations!();
+steadfast_macros::impl_extract_permutations!();
 
 type BoxFuture = Pin<Box<dyn Future<Output = ResponseResult> + Send>>;
 
@@ -529,7 +529,7 @@ impl<T: Send + Sync> Router<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parsing::{StrParser, prelude::*};
+    use crate::steadfast_parsing::{StrParser, prelude::*};
 
     #[test]
     fn test_router() {

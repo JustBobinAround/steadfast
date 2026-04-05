@@ -1,5 +1,5 @@
-use rand::Random;
 use std::{cmp::Ordering, str::FromStr};
+use steadfast_rand::Random;
 
 #[repr(C)]
 #[derive(Clone, Debug, Hash)]

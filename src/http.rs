@@ -4,8 +4,8 @@ pub mod routing;
 pub mod server;
 pub mod uri;
 
-use crate::parsing::StrParser;
-use crate::parsing::prelude::*;
+use crate::steadfast_parsing::StrParser;
+use crate::steadfast_parsing::prelude::*;
 use crate::stream_writer::prelude::*;
 pub use request::Method;
 use request::RequestBody;

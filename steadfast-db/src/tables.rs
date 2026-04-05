@@ -1,4 +1,4 @@
-use serializer::{Deserialize, Serialize};
+use steadfast_serializer::{Deserialize, Serialize};
 pub trait ZeroTable: Serialize + Deserialize {
     fn table_name() -> &'static str;
     fn table_display_name() -> &'static str;

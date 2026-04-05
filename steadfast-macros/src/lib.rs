@@ -6,7 +6,7 @@ use crate::{
     token_parser::{Struct, TokenParser},
 };
 use proc_macro::{TokenStream, TokenTree};
-use uuid::UUID;
+use steadfast_uuid::UUID;
 
 #[proc_macro]
 pub fn impl_extract_permutations(_item: TokenStream) -> TokenStream {

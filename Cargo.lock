@@ -3,72 +3,62 @@
 version = 4
 
 [[package]]
-name = "db"
-version = "0.1.0"
-dependencies = [
- "serializer",
- "uuid",
-]
-
-[[package]]
-name = "json"
-version = "0.1.0"
-dependencies = [
- "parsing",
- "serializer",
-]
-
-[[package]]
-name = "macros"
-version = "0.1.0"
-dependencies = [
- "uuid",
-]
-
-[[package]]
-name = "parsing"
-version = "0.1.0"
-
-[[package]]
-name = "rand"
-version = "0.1.0"
-
-[[package]]
-name = "serializer"
-version = "0.1.0"
-dependencies = [
- "parsing",
-]
-
-[[package]]
-name = "sha"
-version = "0.1.0"
-
-[[package]]
 name = "steadfast"
 version = "0.1.0"
 dependencies = [
- "db",
- "json",
- "macros",
- "parsing",
- "serializer",
- "uuid",
+ "steadfast-db",
+ "steadfast-json",
+ "steadfast-macros",
+ "steadfast-parsing",
+ "steadfast-serializer",
+ "steadfast-uuid",
 ]
 
 [[package]]
-name = "testing_bin"
+name = "steadfast-crypt"
+version = "0.1.0"
+
+[[package]]
+name = "steadfast-db"
 version = "0.1.0"
 dependencies = [
- "db",
- "rand",
- "steadfast",
- "uuid",
+ "steadfast-serializer",
+ "steadfast-uuid",
 ]
 
 [[package]]
-name = "uuid"
+name = "steadfast-json"
 version = "0.1.0"
 dependencies = [
- "rand",
+ "steadfast-parsing",
+ "steadfast-serializer",
+]
+
+[[package]]
+name = "steadfast-macros"
+version = "0.1.0"
+dependencies = [
+ "steadfast-uuid",
+]
+
+[[package]]
+name = "steadfast-parsing"
+version = "0.1.0"
+
+[[package]]
+name = "steadfast-rand"
+version = "0.1.0"
+
+[[package]]
+name = "steadfast-serializer"
+version = "0.1.0"
+dependencies = [
+ "steadfast-parsing",
+]
+
+[[package]]
+name = "steadfast-uuid"
+version = "0.1.0"
+dependencies = [
+ "steadfast-rand",
 ]

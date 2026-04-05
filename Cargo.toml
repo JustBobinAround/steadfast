@@ -5,12 +5,12 @@ edition = "2024"
 
 [workspace]
 resolver = "3"
-members = ["db", "json", "macros", "parsing", "rand", "serializer", "sha", "testing_bin", "uuid"]
+members = ["steadfast-db", "steadfast-json", "steadfast-macros", "steadfast-parsing", "steadfast-rand", "steadfast-serializer", "steadfast-crypt", "steadfast-uuid"]
 
 [dependencies]
-macros = {path="./macros"}
-uuid = {path="./uuid"}
-db = {path="./db"}
-parsing = {path="./parsing"}
-json = {path="./json"}
-serializer = {path="./serializer"}
+steadfast-macros = {path="./steadfast-macros"}
+steadfast-uuid = {path="./steadfast-uuid"}
+steadfast-db = {path="./steadfast-db"}
+steadfast-parsing = {path="./steadfast-parsing"}
+steadfast-json = {path="./steadfast-json"}
+steadfast-serializer = {path="./steadfast-serializer"}

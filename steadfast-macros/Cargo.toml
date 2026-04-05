@@ -1,5 +1,5 @@
 [package]
-name = "macros"
+name = "steadfast-macros"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,4 +7,4 @@ edition = "2024"
 proc-macro = true
 
 [dependencies]
-uuid = {path = "../uuid"}
+steadfast-uuid = {path = "../steadfast-uuid"}

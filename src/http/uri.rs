@@ -1,6 +1,6 @@
 use crate::{
-    parsing::{Parsable, ParseErr, ParseResult, Parser, StrParser},
-    serializer::{DataHolder, PrimType},
+    steadfast_parsing::{Parsable, ParseErr, ParseResult, Parser, StrParser},
+    steadfast_serializer::{DataHolder, PrimType},
 };
 use std::{cmp::Ordering, collections::BTreeMap, fmt::Display, io::Read};
 
@@ -639,7 +639,7 @@ impl<R: Read> Parsable<R> for URI {
 
 #[cfg(test)]
 mod tests {
-    use crate::parsing::StrParser;
+    use crate::steadfast_parsing::StrParser;
 
     use super::*;
 

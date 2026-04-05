@@ -1,9 +1,9 @@
-use parsing::{StrParser, prelude::*};
-use serializer::{DataHolder, Deserialize, PrimType, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
     io::Read,
 };
+use steadfast_parsing::{StrParser, prelude::*};
+use steadfast_serializer::{DataHolder, Deserialize, PrimType, Serialize};
 // See rfc4627, rfc8259
 #[derive(Debug, PartialEq)]
 pub struct JsonVal {

@@ -1,7 +1,7 @@
 use super::{
     EntityHeader, FromMessageHeader, GeneralHeader, HTTPVersion, MessageHeader, ToMessageHeader,
 };
-use crate::parsing::prelude::*;
+use crate::steadfast_parsing::prelude::*;
 use crate::stream_writer::{StreamResult, StreamWritable};
 use std::{collections::HashMap, io::Read};
 
@@ -678,7 +678,7 @@ impl<W: std::io::Write> StreamWritable<W> for Response {
 
 #[cfg(test)]
 mod tests {
-    use crate::parsing::StrParser;
+    use crate::steadfast_parsing::StrParser;
 
     use super::*;
 

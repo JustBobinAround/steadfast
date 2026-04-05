@@ -2,7 +2,7 @@ use super::{
     EntityHeader, FromMessageHeader, GeneralHeader, HTTPVersion, MessageHeader,
     uri::{RequestQuery, URIPath},
 };
-use crate::parsing::prelude::*;
+use crate::steadfast_parsing::prelude::*;
 use std::{collections::BTreeMap, io::Read};
 
 pub trait FromRequest: Sized {
@@ -351,7 +351,7 @@ impl<R: Read> Parsable<R> for Request {
 
 #[cfg(test)]
 mod tests {
-    use crate::parsing::StrParser;
+    use crate::steadfast_parsing::StrParser;
 
     use super::*;
 

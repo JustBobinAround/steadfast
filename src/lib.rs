@@ -10,8 +10,8 @@ pub mod http;
 pub mod stream_writer;
 pub mod variadics;
 
-pub use db;
-pub use json;
+pub use steadfast_db;
+pub use steadfast_json;
 /// proc macro to wrap main around async executor
 ///
 /// This macro is written pretty badly right now. See the macros workspace for implementation details
@@ -39,7 +39,7 @@ pub use json;
 ///
 /// Additionally, this macro expects the crate to have a name of "zero". Anything
 /// else will break the macro.
-pub use macros::{Deserialize, ToDatabaseBytes, ZeroTable, html, main};
-pub use parsing;
-pub use serializer;
-pub use uuid::UUID;
+pub use steadfast_macros::{Deserialize, ToDatabaseBytes, ZeroTable, html, main};
+pub use steadfast_parsing;
+pub use steadfast_serializer;
+pub use steadfast_uuid::UUID;

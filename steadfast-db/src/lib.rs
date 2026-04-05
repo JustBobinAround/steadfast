@@ -3,14 +3,14 @@ mod db_bytes;
 mod field_map;
 mod tables;
 use crate::tables::ZeroTable;
-use serializer::{DataHolder, Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::Path,
 };
-use uuid::UUID;
+use steadfast_serializer::{DataHolder, Deserialize, Serialize};
+use steadfast_uuid::UUID;
 
 #[repr(C)]
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]

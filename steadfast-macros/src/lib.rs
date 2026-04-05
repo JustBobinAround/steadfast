@@ -43,7 +43,7 @@ pub fn main(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let s = format!(
         r#"async fn async_main() -> {} {}
 fn main() -> {} {{
-    ::zero::async_runtime::run(async_main())
+    ::steadfast::steadfast_async::run(async_main())
 }}"#,
         &return_type, function_block, &return_type,
     );
@@ -104,7 +104,7 @@ pub fn html(item: TokenStream) -> TokenStream {
         let tag_name = match parser.consume() {
             Some(TokenTree::Ident(i)) => i,
             Some(TokenTree::Literal(l)) => {
-                return format!("Into::<::zero::html::Markup>::into({})", l)
+                return format!("Into::<::steadfast::html::Markup>::into({})", l)
                     .parse()
                     .unwrap();
             }
@@ -119,7 +119,7 @@ pub fn html(item: TokenStream) -> TokenStream {
 
         if parser.is_any_ident() {
             tokens.push_str(&format!(
-                "{{::zero::html::Tag::new(::zero::html::TagType::{})}},\n",
+                "{{::steadfast::html::Tag::new(::steadfast::html::TagType::{})}},\n",
                 tag_name
             ));
             // parser.consume();
@@ -145,19 +145,19 @@ pub fn html(item: TokenStream) -> TokenStream {
                 };
 
                 tokens.push_str(&format!(
-                    "{{::zero::html::Tag::new(::zero::html::TagType::{}){}.set_content({}) }},\n",
+                    "{{::steadfast::html::Tag::new(::steadfast::html::TagType::{}){}.set_content({}) }},\n",
                     tag_name, attrs, inner
                 ));
             } else {
                 tokens.push_str(&format!(
-                    "{{::zero::html::Tag::new(::zero::html::TagType::{}){} }},\n",
+                    "{{::steadfast::html::Tag::new(::steadfast::html::TagType::{}){} }},\n",
                     tag_name, attrs
                 ));
             }
         }
     }
 
-    let s = format!("Into::<::zero::html::Markup>::into(vec![{}])", tokens);
+    let s = format!("Into::<::steadfast::html::Markup>::into(vec![{}])", tokens);
 
     s.parse().unwrap()
 }
@@ -189,10 +189,10 @@ fn parse_deserialize_struct(mut parser: TokenParser, is_public: bool) -> TokenSt
         .collect();
 
     let output = format!(
-        r#"impl ::zero::serializer::Deserialize for {} {{
-    fn deserialize(dh: ::zero::serializer::DataHolder) -> Result<Self, ()> {{
+        r#"impl ::steadfast::serializer::Deserialize for {} {{
+    fn deserialize(dh: ::steadfast::serializer::DataHolder) -> Result<Self, ()> {{
         match dh {{
-            ::zero::serializer::DataHolder::Struct(mut dh) => Ok(Self {{
+            ::steadfast::serializer::DataHolder::Struct(mut dh) => Ok(Self {{
                 {}
             }}),
             _ => Err(())
@@ -267,12 +267,12 @@ fn parse_db_bytes_struct(
     let reversed: String = to_reverse.into_iter().rev().collect();
 
     let output = format!(
-        r#"{}impl{} ::zero::db::ToDatabaseBytes for {}{} {{
-            fn to_db_bytes(self) -> ::zero::db::DatabaseBytes {{
-                ::zero::db::DatabaseBytes::default(){}
+        r#"{}impl{} ::steadfast::db::ToDatabaseBytes for {}{} {{
+            fn to_db_bytes(self) -> ::steadfast::db::DatabaseBytes {{
+                ::steadfast::db::DatabaseBytes::default(){}
             }}
 
-            fn from_db_bytes(bytes: &mut ::zero::db::DatabaseBytes) -> Result<Self, ()> {{
+            fn from_db_bytes(bytes: &mut ::steadfast::db::DatabaseBytes) -> Result<Self, ()> {{
                 Ok(Self {{
                     {}
                 }})
@@ -333,12 +333,12 @@ pub fn derive_zero_table(items: TokenStream) -> TokenStream {
                 .map(|t| t.to_string())
                 .collect();
             let zero_table_trait = format!(
-                r#"impl{} ::zero::db::ZeroTable for {}{} {{
+                r#"impl{} ::steadfast::db::ZeroTable for {}{} {{
                     fn table_name() -> &'static str {{
                         "{}"
                     }}
-                    fn table_version_hash() -> ::zero::UUID {{
-                        ::zero::{}
+                    fn table_version_hash() -> ::steadfast::UUID {{
+                        ::steadfast::{}
                     }}
                 }}"#,
                 traits,

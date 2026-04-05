@@ -1,7 +1,6 @@
 #![allow(clippy::from_str_radix_10)] //<< I just prefer this, idk
 #![doc = include_str!("../README.md")]
 extern crate self as zero;
-pub mod async_runtime;
 // pub mod db;
 pub mod errors;
 pub mod html;
@@ -10,6 +9,7 @@ pub mod http;
 pub mod stream_writer;
 pub mod variadics;
 
+pub use steadfast_async;
 pub use steadfast_db;
 pub use steadfast_json;
 /// proc macro to wrap main around async executor
@@ -18,9 +18,9 @@ pub use steadfast_json;
 ///
 /// # Example Usage
 /// ```text
-/// use zero::http::routing::Router;
-/// use zero::http::server::HttpServer;
-/// #[zero::main]
+/// use steadfast::http::routing::Router;
+/// use steadfast::http::server::HttpServer;
+/// #[steadfast::main]
 /// async fn main() -> Result<(), ()> {  // allows async usage
 ///    let router = Router::new(());
 ///    

@@ -13,7 +13,7 @@ members = [
   "steadfast-macros",
   "steadfast-parsing",
   "steadfast-rand",
-  "steadfast-serializer",
+  "steadfast-serializer", "steadfast-time",
   "steadfast-uuid",
 ]
 

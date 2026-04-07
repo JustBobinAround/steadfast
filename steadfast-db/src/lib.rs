@@ -2,13 +2,14 @@ mod b_tree;
 mod db_bytes;
 mod field_map;
 mod tables;
-use crate::tables::ZeroTable;
+use crate::tables::STable;
 use std::{
     collections::HashMap,
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::Path,
 };
+use steadfast_crypt::SHA256;
 use steadfast_serializer::{DataHolder, Deserialize, Serialize};
 use steadfast_uuid::UUID;
 
@@ -18,7 +19,7 @@ pub struct AddressEntry {
     pub uuid: UUID,
     pub address: usize,
     pub last_update: usize,
-    pub table_id: usize,
+    // pub table_id: SHA256,
 }
 
 impl AddressEntry {
@@ -32,7 +33,7 @@ impl AddressEntry {
             uuid,
             address: self.address,
             last_update: self.last_update,
-            table_id: self.table_id,
+            // table_id: self.table_id.clone(), //TODO: see if we need this clone
         }
     }
 
@@ -58,27 +59,27 @@ impl AddressEntry {
             })
     }
 
-    pub fn from_bytes(buf: [u8; 32]) -> Self {
-        let uuid = UUID::from_u128(<u128>::from_le_bytes(
-            <[u8; 16]>::try_from(&buf[0..16]).expect("guarenteed 0..16 slice failed to convert"),
-        ));
+    // pub fn from_bytes(buf: [u8; 32]) -> Result<Self, ()> {
+    //     let uuid = UUID::from_u128(<u128>::from_le_bytes(
+    //         <[u8; 16]>::try_from(&buf[0..16]).expect("guarenteed 0..16 slice failed to convert"),
+    //     ));
 
-        let address = <usize>::from_le_bytes(
-            <[u8; 8]>::try_from(&buf[16..24]).expect("guarenteed 16..24 slice failed to convert"),
-        );
-        let last_update = <usize>::from_le_bytes(
-            <[u8; 8]>::try_from(&buf[24..32]).expect("guarenteed 24..32 slice failed to convert"),
-        );
-        let table_id = <usize>::from_le_bytes(
-            <[u8; 8]>::try_from(&buf[32..40]).expect("guarenteed 32..40 slice failed to convert"),
-        );
-        Self {
-            uuid,
-            address,
-            last_update,
-            table_id,
-        }
-    }
+    //     let address = <usize>::from_le_bytes(
+    //         <[u8; 8]>::try_from(&buf[16..24]).expect("guarenteed 16..24 slice failed to convert"),
+    //     );
+    //     let last_update = <usize>::from_le_bytes(
+    //         <[u8; 8]>::try_from(&buf[24..32]).expect("guarenteed 24..32 slice failed to convert"),
+    //     );
+    //     let table_id = <usize>::from_le_bytes(
+    //         <[u8; 8]>::try_from(&buf[32..40]).expect("guarenteed 32..40 slice failed to convert"),
+    //     );
+    //     Ok(Self {
+    //         uuid,
+    //         address,
+    //         last_update,
+    //         table_id,
+    //     })
+    // }
 }
 
 impl Default for AddressEntry {
@@ -93,7 +94,7 @@ impl Default for AddressEntry {
             },
             address: 0,
             last_update: 0,
-            table_id: 0,
+            // table_id: 0,
         }
     }
 }
@@ -117,7 +118,7 @@ pub struct Database<'a> {
     reader: BufReader<&'a File>,
     file_size: usize,
     read_offset: usize,
-    index: HashMap<UUID, AddressEntry>,
+    // index: HashMap<UUID, AddressEntry>,
 }
 
 impl<'a> Database<'a> {
@@ -141,9 +142,9 @@ impl<'a> Database<'a> {
             .as_millis() as usize)
     }
 
-    fn insert_entry(&mut self, entry: AddressEntry) {
-        self.index.insert(entry.uuid, entry);
-    }
+    // fn insert_entry(&mut self, entry: AddressEntry) {
+    //     self.index.insert(entry.uuid, entry);
+    // }
 
     fn write_bytes_exact(&mut self, bytes: &[u8]) -> Result<(), DatabaseErr> {
         let bytes_written = self
@@ -165,7 +166,7 @@ impl<'a> Database<'a> {
         Ok(())
     }
 
-    pub fn append_entry<T: ZeroTable>(&mut self, uuid: UUID, data: T) -> Result<(), DatabaseErr> {
+    pub fn append_entry<T: STable>(&mut self, uuid: UUID, data: T) -> Result<(), DatabaseErr> {
         match self.read_entry::<T>(uuid) {
             Ok(current_data) => {
                 if &current_data == &data {
@@ -182,26 +183,28 @@ impl<'a> Database<'a> {
             //time went backwards some how
             return Err(DatabaseErr::TimeWentBackwards);
         }
-        let table_id = T::table_id();
-        let entry = AddressEntry {
-            uuid,
-            address: self.file_size,
-            last_update,
-            table_id,
-        };
+        // let table_id = T::table_id();
+        // let entry = AddressEntry {
+        //     uuid,
+        //     address: self.file_size,
+        //     last_update,
+        //     table_id,
+        // };
 
         let uuid_bytes = &uuid.as_u128().to_le_bytes();
         let data_len_bytes = &buf.len().to_le_bytes();
         let last_update_bytes = &last_update.to_le_bytes();
-        let table_hash_bytes = &table_id.to_le_bytes();
+        let table_id_bytes = T::TABLE_ID.to_le_bytes();
+        let table_type_bytes = T::TYPE_HASH.to_le_bytes();
         self.write_bytes_exact(uuid_bytes)?;
+        self.write_bytes_exact(&table_id_bytes)?;
+        self.write_bytes_exact(&table_type_bytes)?;
         self.write_bytes_exact(data_len_bytes)?;
         self.write_bytes_exact(last_update_bytes)?;
-        self.write_bytes_exact(table_hash_bytes)?;
         self.write_bytes_exact(&buf)?;
         self.flush_writer()?;
 
-        self.insert_entry(entry);
+        // self.insert_entry(entry);
 
         self.file_size +=
             &buf.len() + uuid_bytes.len() + data_len_bytes.len() + last_update_bytes.len();
@@ -215,17 +218,8 @@ impl<'a> Database<'a> {
     const ENTRY_HEADER_OFFSET: usize =
         Self::UUID_BSIZE + Self::DATA_LEN_BSIZE + Self::LAST_UPDATE_BSIZE;
 
-    pub fn read_entry<T: ZeroTable>(&mut self, uuid: UUID) -> Result<T, DatabaseErr> {
-        let address = match self.index.get(&uuid) {
-            Some(address_entry) => {
-                if address_entry.table_id == T::table_id() {
-                    address_entry.address
-                } else {
-                    return Err(DatabaseErr::InvalidTableType);
-                }
-            }
-            None => return Err(DatabaseErr::NoEntryFound),
-        };
+    pub fn read_entry<T: STable>(&mut self, uuid: UUID) -> Result<T, DatabaseErr> {
+        let address = todo!();
 
         let (_, data_len) = self.read_address_entry_at(address)?;
         let bytes = self.read_entry_data(data_len)?;
@@ -235,7 +229,7 @@ impl<'a> Database<'a> {
 
     fn index_next_entry(&mut self) -> Result<(), DatabaseErr> {
         let (entry, data_len) = self.read_next_address_entry()?;
-        self.index.insert(entry.uuid, entry);
+        // self.index.insert(entry.uuid, entry);
         self.reader
             .seek_relative(data_len as i64)
             .map_err(|_| DatabaseErr::FailedToRead)?;
@@ -279,7 +273,7 @@ impl<'a> Database<'a> {
             uuid,
             address: self.read_offset,
             last_update,
-            table_id,
+            // table_id,
         };
 
         self.read_offset += Self::ENTRY_HEADER_OFFSET;
@@ -336,7 +330,7 @@ impl<'a> Database<'a> {
     pub fn new(db_file: &'a File) -> Result<Self, DatabaseErr> {
         let writer = BufWriter::new(db_file);
         let reader = BufReader::new(db_file);
-        let index = HashMap::new();
+        // let index = HashMap::new();
         let file_size = 0;
         let read_offset = 0;
 
@@ -346,7 +340,7 @@ impl<'a> Database<'a> {
             reader,
             file_size,
             read_offset,
-            index,
+            // index,
         }
         .init_index()?;
 

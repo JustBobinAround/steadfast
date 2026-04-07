@@ -1,11 +1,9 @@
 #![allow(clippy::from_str_radix_10)] //<< I just prefer this, idk
 #![doc = include_str!("../README.md")]
-extern crate self as zero;
-// pub mod db;
+extern crate self as steadfast;
 pub mod errors;
 pub mod html;
 pub mod http;
-// pub mod parsing;
 pub mod stream_writer;
 pub mod variadics;
 
@@ -37,9 +35,9 @@ pub use steadfast_json;
 /// Currently this only supports `Result<(), ()>` types because I don't feel
 /// like making a full token parser yet.
 ///
-/// Additionally, this macro expects the crate to have a name of "zero". Anything
+/// Additionally, this macro expects the crate to have a name of "steadfast". Anything
 /// else will break the macro.
-pub use steadfast_macros::{Deserialize, ToDatabaseBytes, ZeroTable, html, main};
+pub use steadfast_macros::{Deserialize, STable, ToDatabaseBytes, html, main};
 pub use steadfast_parsing;
 pub use steadfast_serializer;
 pub use steadfast_uuid::UUID;

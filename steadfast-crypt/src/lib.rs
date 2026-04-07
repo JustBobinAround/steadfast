@@ -1,6 +1,12 @@
 /// See "Secure Hash Standard" in FIPS PUB 180-4 on [NIST](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf).
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SHA256([u32; 8]);
+
+impl std::fmt::Display for SHA256 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.hex_digest())
+    }
+}
 
 impl Default for SHA256 {
     fn default() -> Self {
@@ -14,6 +20,35 @@ enum RemainderChunk {
 }
 
 impl SHA256 {
+    pub fn to_le_bytes(&self) -> [u8; 32] {
+        let mut bytes = [0u8; 32];
+        bytes
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(self.0.iter().map(|num| num.to_le_bytes()))
+            .for_each(|(chunk, num_chunk)| chunk.copy_from_slice(&num_chunk));
+        bytes
+    }
+    pub fn from_le_bytes(bytes: &[u8; 32]) -> Self {
+        Self(
+            bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .enumerate()
+                .fold([0; 8], |mut num, (i, chunk)| {
+                    num[i] = <u32>::from_le_bytes(*chunk);
+                    num
+                }),
+        )
+    }
+    pub fn inner_bytes(&self) -> &[u32; 8] {
+        &self.0
+    }
+    pub const fn from_raw(inner_bytes: [u32; 8]) -> Self {
+        Self(inner_bytes)
+    }
     /// See NIST FIPS 180-4 Section 4.2.2
     ///
     /// SHA-224 and SHA-256 use the same sequence of sixty-four constant 32-bit

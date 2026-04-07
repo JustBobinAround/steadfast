@@ -13,7 +13,7 @@ and application development. This library contains a wide variety of tools:
   - [x] Routing
     - [x] Request extractor abstractions
 - [ ] Serialization macros
-  - [ ] JSON
+  - [x] JSON
   - [ ] HTTP
     - [ ] Body
       - [ ] URI Query Params

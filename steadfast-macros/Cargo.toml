@@ -8,3 +8,4 @@ proc-macro = true
 
 [dependencies]
 steadfast-uuid = {path = "../steadfast-uuid"}
+steadfast-crypt = {path = "../steadfast-crypt"}

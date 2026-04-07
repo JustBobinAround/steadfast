@@ -336,6 +336,7 @@ impl Eq for PrimType {}
 pub enum DataHolderErr {
     InvalidNumCode(u8),
     FoundEmptyBytes,
+    FieldNotFound,
     NotEnoughBytes { need: usize, found: usize },
     InvalidBoolVal { found: u8 },
     InvalidUTF8,

@@ -310,8 +310,8 @@ pub fn derive_to_db_bytes(items: TokenStream) -> TokenStream {
         },
     }
 }
-#[proc_macro_derive(ZeroTable)]
-pub fn derive_zero_table(items: TokenStream) -> TokenStream {
+#[proc_macro_derive(InternalTableSF, attributes(indexed))]
+pub fn derive_internal_steadfast_table(items: TokenStream) -> TokenStream {
     let mut parser = TokenParser::new(items);
 
     let is_pub = parser.is_ident("pub");
@@ -332,30 +332,127 @@ pub fn derive_zero_table(items: TokenStream) -> TokenStream {
                 .iter()
                 .map(|t| t.to_string())
                 .collect();
+            let struct_type_hash = format!(
+                "SHA256::from_raw([{}])",
+                data_struct.struct_signature().inner_bytes().iter().fold(
+                    String::new(),
+                    |mut s, b| {
+                        s.push_str(&b.to_string());
+                        s.push(',');
+                        s
+                    }
+                )
+            );
+            let field_mappings = data_struct
+                .fields()
+                .iter()
+                .filter(|field| field.1.helper() == "indexed")
+                .fold(String::new(), |mut s, field| {
+                    s.push('"');
+                    s.push_str(field.0.as_str());
+                    s.push_str("\"=>Some(");
+                    s.push_str(field.1.type_id_str().as_str());
+                    s.push_str("),");
+                    s
+                });
             let zero_table_trait = format!(
-                r#"impl{} ::steadfast::db::ZeroTable for {}{} {{
+                r#"impl{} crate::tables::STable for {}{} {{
                     fn table_name() -> &'static str {{
                         "{}"
                     }}
-                    fn table_version_hash() -> ::steadfast::UUID {{
-                        ::steadfast::{}
+                    fn table_display_name() -> &'static str {{
+                        "{}"
                     }}
+                    fn index_field_maps(field_name: &str) -> Option<SHA256> {{
+                        match field_name {{
+                            {}
+                            _ => None
+                        }}
+                    }}
+                    const TABLE_ID: SHA256 = {};
+                    const TYPE_HASH: SHA256 = {};
                 }}"#,
                 traits,
                 data_struct.name(),
                 idents,
                 data_struct.name(),
-                UUID::from_table_hash(data_struct.struct_signature())
-                    .expect("Failed to build table uuid")
-                    .as_token_string(),
+                "TODO: Struct name to display name automation",
+                field_mappings,
+                struct_type_hash,
+                struct_type_hash,
+            );
+            eprintln!("{}", zero_table_trait);
+
+            // let t = parse_db_bytes_struct(zero_table_trait, parser, is_pub, data_struct);
+
+            zero_table_trait.parse().unwrap()
+        }
+        Err(_) => match parser.consume_if(|p| p.is_ident("enum")) {
+            Ok(_) => {
+                unimplemented!("Enum serialization is not supported at this time")
+            }
+
+            Err(_) => panic!("Expected a struct or enum"),
+        },
+    }
+}
+#[proc_macro_derive(STable, attributes(indexed))]
+pub fn derive_steadfast_table(items: TokenStream) -> TokenStream {
+    let mut parser = TokenParser::new(items);
+
+    let is_pub = parser.is_ident("pub");
+    if is_pub {
+        parser.consume();
+    }
+
+    match parser.consume_if(|p| p.is_ident("struct")) {
+        Ok(_) => {
+            let data_struct = parser.consume_struct(is_pub).expect("a valid struct");
+            let traits: String = data_struct
+                .generic_traits()
+                .iter()
+                .map(|t| t.to_string())
+                .collect();
+            let idents: String = data_struct
+                .generic_idents()
+                .iter()
+                .map(|t| t.to_string())
+                .collect();
+            let struct_type_hash = format!(
+                "SHA256::from_raw([{}])",
+                data_struct.struct_signature().inner_bytes().iter().fold(
+                    String::new(),
+                    |mut s, b| {
+                        s.push_str(&b.to_string());
+                        s.push(',');
+                        s
+                    }
+                )
+            );
+            let zero_table_trait = format!(
+                r#"impl{} ::steadfast::db::STable for {}{} {{
+                    fn table_name() -> &'static str {{
+                        "{}"
+                    }}
+                    fn table_display_name() -> &'static str {{
+                        "{}"
+                    }}
+                    const TABLE_ID: SHA256 = {};
+                    const TYPE_HASH: SHA256 = {};
+                }}"#,
+                traits,
+                data_struct.name(),
+                idents,
+                data_struct.name(),
+                "TODO: Struct name to display name automation",
+                struct_type_hash,
+                struct_type_hash,
             );
 
             let name = data_struct.name().clone();
 
             let t = parse_db_bytes_struct(zero_table_trait, parser, is_pub, data_struct);
-            if name == "UUID" {
-                eprintln!("{:#?}", t);
-            }
+
             t
         }
         Err(_) => match parser.consume_if(|p| p.is_ident("enum")) {

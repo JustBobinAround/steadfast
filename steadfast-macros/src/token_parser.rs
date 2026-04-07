@@ -1,16 +1,39 @@
 use proc_macro::{TokenStream, TokenTree, token_stream::IntoIter};
 use std::{collections::BTreeMap, sync::Arc};
+use steadfast_crypt::SHA256;
 
 #[derive(Debug)]
 pub struct StructField {
+    helper: String,
     name: Arc<String>,
     is_public: bool,
     ty: Vec<TokenTree>,
 }
 
 impl StructField {
+    pub fn helper(&self) -> &str {
+        &self.helper
+    }
     pub fn ty_str(&self) -> String {
         self.ty.iter().map(|t| t.to_string()).collect()
+    }
+
+    pub fn type_id(&self) -> SHA256 {
+        SHA256::new(format!("{}{}", self.name, self.ty_str()).as_bytes())
+    }
+
+    pub fn type_id_str(&self) -> String {
+        format!(
+            "SHA256::from_raw([{}])",
+            self.type_id()
+                .inner_bytes()
+                .iter()
+                .fold(String::new(), |mut s, b| {
+                    s.push_str(&b.to_string());
+                    s.push(',');
+                    s
+                })
+        )
     }
 }
 
@@ -46,8 +69,7 @@ impl Struct {
         start
     }
 
-    pub fn struct_signature(&self) -> u64 {
-        let mut start = 0;
+    pub fn struct_signature(&self) -> SHA256 {
         let mut generic_traits: Vec<String> = self
             .generic_traits()
             .iter()
@@ -56,18 +78,20 @@ impl Struct {
 
         generic_traits.sort();
 
-        for t in generic_traits {
-            start = Self::hash_str(start, t);
-        }
+        let s = generic_traits.iter().fold(String::new(), |mut s, t| {
+            s.push_str(&t);
+            s
+        });
 
-        for (name, field) in self.fields() {
-            start = Self::hash_str(start, name.to_string());
-            for t in field.ty.iter() {
-                start = Self::hash_str(start, t.to_string());
-            }
-        }
+        let s = self.fields().iter().fold(s, |mut s, (name, field)| {
+            s.push_str(&name);
+            field.ty.iter().fold(s, |mut s, ty| {
+                s.push_str(&ty.to_string());
+                s
+            })
+        });
 
-        start
+        SHA256::new(s.as_bytes())
     }
 
     pub fn is_public(&self) -> bool {
@@ -89,11 +113,12 @@ impl Struct {
         &self.fields
     }
 
-    pub fn add_field(&mut self, name: String, is_public: bool, ty: Vec<TokenTree>) {
+    pub fn add_field(&mut self, helper: String, name: String, is_public: bool, ty: Vec<TokenTree>) {
         let name = Arc::new(name);
         self.fields.insert(
             name.clone(),
             StructField {
+                helper,
                 name,
                 is_public,
                 ty,
@@ -331,6 +356,15 @@ impl TokenParser {
         let mut inner_parser = TokenParser::new(fields.stream());
 
         while inner_parser.has_tokens_left() {
+            let helper = if inner_parser.is_punct("#") {
+                inner_parser.consume();
+                match inner_parser.consume() {
+                    Some(TokenTree::Group(g)) => g.stream().to_string(),
+                    _ => return Err(()),
+                }
+            } else {
+                String::new()
+            };
             let ident = inner_parser.consume_if(|p| p.is_any_ident())?.to_string();
 
             let is_pub = ident == "pub";
@@ -345,7 +379,7 @@ impl TokenParser {
 
             let ty = inner_parser.consume_type()?;
 
-            data_struct.add_field(ident, is_pub, ty);
+            data_struct.add_field(helper, ident, is_pub, ty);
 
             let _ = inner_parser.consume_if(|p| p.is_punct(","));
         }

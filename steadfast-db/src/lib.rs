@@ -27,7 +27,7 @@ impl AddressEntry {
 
     pub fn dealloc_entry(&self) -> Self {
         let mut uuid = self.uuid.clone();
-        uuid.data_1 = 0;
+        uuid.0 = uuid.0 & 0x0000_0000_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF;
 
         AddressEntry {
             uuid,
@@ -38,7 +38,7 @@ impl AddressEntry {
     }
 
     pub fn is_deallocated(&self) -> bool {
-        self.uuid.data_1 == 0
+        self.uuid.extract_timestamp() == 0
     }
 
     pub fn to_bytes(&self) -> [u8; 32] {
@@ -85,13 +85,7 @@ impl AddressEntry {
 impl Default for AddressEntry {
     fn default() -> Self {
         AddressEntry {
-            uuid: UUID {
-                // data_1 should never be 0 because that would be 1970 unix sys time
-                data_1: 0,
-                data_2: 0,
-                data_3: 0,
-                data_4: [0; 8],
-            },
+            uuid: UUID::default(),
             address: 0,
             last_update: 0,
             // table_id: 0,

@@ -1,88 +1,30 @@
 use std::{cmp::Ordering, str::FromStr};
 use steadfast_rand::Random;
 
-#[repr(C)]
-#[derive(Clone, Debug, Hash)]
-pub struct UUID {
-    pub data_1: u32,
-    pub data_2: u16,
-    pub data_3: u16,
-    pub data_4: [u8; 8],
-}
-
-impl Copy for UUID {}
-
-impl PartialEq for UUID {
-    fn eq(&self, other: &Self) -> bool {
-        self.data_1 == other.data_1
-            && self.data_2 == other.data_2
-            && self.data_3 == other.data_3
-            && self.data_4 == other.data_4
-    }
-}
-
-impl Eq for UUID {}
-
-impl PartialOrd for UUID {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-/// Ordering is built around data_1 > data_2 > data_3 > data_4
-///
-/// This probably what rust does with derive, but I
-/// want to make sure ord is guaranteed by comparing time first
-/// for v7 uuids where data_1 & data_2 are time stamps
-impl Ord for UUID {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.data_1
-            .cmp(&other.data_1)
-            .then_with(|| self.data_2.cmp(&other.data_2))
-            .then_with(|| self.data_3.cmp(&other.data_3))
-            .then_with(|| self.data_4.cmp(&other.data_4))
-    }
-}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UUID(pub u128);
 
 impl UUID {
-    pub fn new(data_1: u32, data_2: u16, data_3: u16, data_4: [u8; 8]) -> Self {
-        UUID {
-            data_1,
-            data_2,
-            data_3,
-            data_4,
-        }
-    }
-
     pub fn as_u128(&self) -> u128 {
-        let data_1 = (self.data_1 as u128) << 96;
-        let data_2 = (self.data_2 as u128) << 80;
-        let data_3 = (self.data_3 as u128) << 64;
-        let data_4 = <u64>::from_le_bytes(self.data_4) as u128;
+        // let data_1 = (self.data_1 as u128) << 96;
+        // let data_2 = (self.data_2 as u128) << 80;
+        // let data_3 = (self.data_3 as u128) << 64;
+        // let data_4 = <u64>::from_le_bytes(self.data_4) as u128;
 
-        data_1 | data_2 | data_3 | data_4
+        // data_1 | data_2 | data_3 | data_4
+        self.0
     }
 
     pub fn from_u128(n: u128) -> Self {
-        UUID {
-            data_1: (n >> 96) as u32,
-            data_2: (n >> 80) as u16,
-            data_3: (n >> 64) as u16,
-            data_4: (n as u64).to_le_bytes(),
-        }
-    }
+        // UUID {
+        //     data_1: (n >> 96) as u32,
+        //     data_2: (n >> 80) as u16,
+        //     data_3: (n >> 64) as u16,
+        //     data_4: (n as u64).to_le_bytes(),
+        // }
 
-    pub fn as_token_string(&self) -> String {
-        format!(
-            "UUID::new({},{},{},[{}])",
-            self.data_1,
-            self.data_2,
-            self.data_3,
-            self.data_4
-                .iter()
-                .map(|s| format!("{},", s))
-                .collect::<String>()
-        )
+        Self(n)
     }
 
     /// Encodes a table hash into UUID with the current unix timestamp
@@ -105,16 +47,9 @@ impl UUID {
         Ok(UUID::default().encode_time(t_ms).encode_id(table_hash))
     }
 
-    /// Decodes a table hash from a UUID. Version check must be done by user.
-    pub fn as_table_hash(&self) -> u64 {
-        u64::from_le_bytes(self.data_4)
-    }
-
     /// Sets rand_b section of uuid, forces rand_a to b 0 and uuid version to be v7.
     pub fn encode_id(mut self, id: u64) -> Self {
-        self.data_3 = 0x7 << 12;
-        self.data_4 = id.to_le_bytes();
-
+        self.0 = self.0 | id as u128;
         self
     }
 
@@ -145,42 +80,30 @@ impl UUID {
     /// See rand module to see how random nums are generated
     pub fn rand_v7() -> Result<Self, ()> {
         let t_ms = Self::current_time()?;
-        let rand_a = u16::rand().map_err(|_| ())?;
+        let rand_a = <u16>::rand().map_err(|_| ())?;
         let version: u16 = 0x7 << 12;
-        let data_3 = version | rand_a;
+        let top = ((version | rand_a) as u128) << 64;
 
-        let data_4 = <[u8; 8]>::rand().map_err(|_| ())?;
-        // data_4[0] = 1;
-        // data_4[1] = 0;
+        let bottom = <u64>::rand().map_err(|_| ())? as u128;
 
-        Ok(UUID {
-            data_1: 0,
-            data_2: 0,
-            data_3,
-            data_4,
-        }
-        .encode_time(t_ms))
+        Ok(UUID(top | bottom).encode_time(t_ms))
     }
 
     pub fn encode_time(mut self, t_ms: u64) -> Self {
-        self.data_1 = (t_ms >> 16) as u32;
-        self.data_2 = t_ms as u16;
+        const MASK: u64 = 0xFFFF_FFFF_FFFF_0000;
+        self.0 = ((t_ms & MASK) as u128) << 64 | self.0;
         self
     }
 
     pub fn extract_timestamp(&self) -> u64 {
-        ((self.data_1 as u64) << 16) | (self.data_2 as u64)
+        const MASK: u64 = 0xFFFF_FFFF_FFFF_0000;
+        ((self.0 >> 64) as u64) & MASK
     }
 }
 
 impl Default for UUID {
     fn default() -> Self {
-        UUID {
-            data_1: 0,
-            data_2: 0,
-            data_3: 0,
-            data_4: [0_u8; 8],
-        }
+        UUID(0)
     }
 }
 
@@ -199,13 +122,15 @@ impl Default for UUID {
 /// ```
 impl std::fmt::Display for UUID {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:08x}-{:04x}-{:04x}-",
-            self.data_1, self.data_2, self.data_3,
-        )?;
+        let top = (self.0 >> 64) as u64;
+        let data_1 = (top >> 32) as u32;
+        let data_2 = (top >> 16) as u16;
+        let data_3 = top as u16;
+        write!(f, "{:08x}-{:04x}-{:04x}-", data_1, data_2, data_3,)?;
 
-        for b in self.data_4 {
+        let bottom = (self.0 as u64).to_be_bytes();
+
+        for b in bottom {
             write!(f, "{:02x}", b)?;
         }
 
@@ -258,8 +183,12 @@ impl FromStr for UUID {
             let s = &s_data_4[idx * 2..(idx * 2) + 2];
             data_4[idx] = u8::from_str_radix(s, 16).map_err(|_| ())?;
         }
+        let data_4 = <u64>::from_be_bytes(data_4) as u128;
 
-        Ok(UUID::new(data_1, data_2, data_3, data_4))
+        let top =
+            ((((data_1 as u64) << 32) | ((data_2 as u64) << 16) | data_3 as u64) as u128) << 64;
+
+        Ok(UUID(top | data_4))
     }
 }
 #[cfg(test)]
@@ -269,20 +198,20 @@ mod tests {
     #[test]
     fn test_uuid_rand() {
         let uuid = UUID::rand_v7();
-        assert!(
-            uuid != Ok(UUID {
-                data_1: 0,
-                data_2: 0,
-                data_3: 0,
-                data_4: [0, 0, 0, 0, 0, 0, 0, 0],
-            })
-        );
+        assert!(uuid != Ok(UUID(0)));
+    }
+
+    #[test]
+    fn test_uuid_encoding() {
+        let uuid_a = UUID::rand_v7().unwrap();
+        let uuid_b = UUID::from_str(&uuid_a.to_string()).unwrap();
+        assert!(uuid_a == uuid_b);
     }
 
     #[test]
     fn test_time_encoding() {
-        let t_ms = 12093472938478;
-        let uuid = UUID::rand_v7().unwrap().encode_time(t_ms);
+        let t_ms = 12093472938478 & 0xFFFF_FFFF_FFFF_0000; // can only store 48 bits
+        let uuid = UUID::default().encode_time(t_ms);
         assert_eq!(t_ms, uuid.extract_timestamp());
     }
 }

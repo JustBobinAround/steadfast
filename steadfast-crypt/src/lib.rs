@@ -20,29 +20,6 @@ enum RemainderChunk {
 }
 
 impl SHA256 {
-    pub fn to_le_bytes(&self) -> [u8; 32] {
-        let mut bytes = [0u8; 32];
-        bytes
-            .as_chunks_mut::<4>()
-            .0
-            .iter_mut()
-            .zip(self.0.iter().map(|num| num.to_le_bytes()))
-            .for_each(|(chunk, num_chunk)| chunk.copy_from_slice(&num_chunk));
-        bytes
-    }
-    pub fn from_le_bytes(bytes: &[u8; 32]) -> Self {
-        Self(
-            bytes
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .enumerate()
-                .fold([0; 8], |mut num, (i, chunk)| {
-                    num[i] = <u32>::from_le_bytes(*chunk);
-                    num
-                }),
-        )
-    }
     pub fn inner_bytes(&self) -> &[u32; 8] {
         &self.0
     }
@@ -178,6 +155,23 @@ impl SHA256 {
         let (chunks, remainder) = data.as_chunks::<64>();
         let data_len = data.len();
         (chunks, Self::pad_chunk(remainder, data_len))
+    }
+
+    pub fn combine(self, other: &Self) -> Self {
+        let mut bytes = [0u8; 64];
+        bytes
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(
+                self.0
+                    .iter()
+                    .map(|num| num.to_le_bytes())
+                    .chain(other.0.iter().map(|num| num.to_le_bytes())),
+            )
+            .for_each(|(chunk, num_chunk)| chunk.copy_from_slice(&num_chunk));
+
+        self.apply_chunk(&bytes)
     }
 
     pub fn new(data: &[u8]) -> Self {

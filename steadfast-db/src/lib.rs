@@ -1,15 +1,13 @@
 mod b_tree;
-mod db_bytes;
 mod field_map;
 mod tables;
 use crate::tables::STable;
 use std::{
-    collections::HashMap,
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::Path,
 };
-use steadfast_crypt::SHA256;
+use steadfast_bytes::ToBytes;
 use steadfast_serializer::{DataHolder, Deserialize, Serialize};
 use steadfast_uuid::UUID;
 
@@ -170,8 +168,7 @@ impl<'a> Database<'a> {
             _ => {}
         }
         let data = data.serialize();
-        let mut buf = Vec::new();
-        data.to_bytes(&mut buf);
+        let mut buf = data.to_bytes(Vec::new());
         let last_update = Self::current_time()?;
         if uuid.extract_timestamp() > last_update as u64 {
             //time went backwards some how
@@ -188,8 +185,8 @@ impl<'a> Database<'a> {
         let uuid_bytes = &uuid.as_u128().to_le_bytes();
         let data_len_bytes = &buf.len().to_le_bytes();
         let last_update_bytes = &last_update.to_le_bytes();
-        let table_id_bytes = T::TABLE_ID.to_le_bytes();
-        let table_type_bytes = T::TYPE_HASH.to_le_bytes();
+        let table_id_bytes = T::TABLE_ID.to_sf_le_bytes();
+        let table_type_bytes = T::TYPE_HASH.to_sf_le_bytes();
         self.write_bytes_exact(uuid_bytes)?;
         self.write_bytes_exact(&table_id_bytes)?;
         self.write_bytes_exact(&table_type_bytes)?;

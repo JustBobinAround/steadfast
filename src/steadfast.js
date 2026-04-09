@@ -1,10 +1,10 @@
 (()=>{
 	if(document.__fixi_mo) return;
 	document.__fixi_mo = new MutationObserver((recs)=>recs.forEach((r)=>r.type === "childList" && r.addedNodes.forEach((n)=>process(n))))
-	let send = (elt, type, detail, bub)=>elt.dispatchEvent(new CustomEvent("fx:" + type, {detail, cancelable:true, bubbles:bub !== false, composed:true}))
+	let send = (elt, type, detail, bub)=>elt.dispatchEvent(new CustomEvent("sf:" + type, {detail, cancelable:true, bubbles:bub !== false, composed:true}))
 	let attr = (elt, name, defaultVal)=>elt.getAttribute(name) || defaultVal
-	let ignore = (elt)=>elt.closest("[fx-ignore]") != null
-	let load = (elt)=>elt.closest("[fx-load]") != null
+	let ignore = (elt)=>elt.closest("[sf-ignore]") != null
+	let load = (elt)=>elt.closest("[sf-load]") != null
 	let init = (elt)=>{
 		let options = {}
 		if (elt.__fixi || ignore(elt) || !send(elt, "init", {options})) return
@@ -17,19 +17,19 @@
 			let ac = new AbortController()
 			let cfg = {
 				trigger:evt,
-				action:attr(elt, "fx-action"),
-				method:attr(elt, "fx-method", "GET").toUpperCase(),
-				target:document.querySelector(attr(elt, "fx-target")) ?? elt,
-				swap:attr(elt, "fx-swap", "outerHTML"),
+				action:attr(elt, "sf-action"),
+				method:attr(elt, "sf-method", "GET").toUpperCase(),
+				target:document.querySelector(attr(elt, "sf-target")) ?? elt,
+				swap:attr(elt, "sf-swap", "outerHTML"),
 				body,
 				drop:reqs.size,
-				headers:{"FX-Request":"true"},
+				headers:{"sf-request":"true", "sf-tz":Intl.DateTimeFormat().resolvedOptions().timeZone},
 				abort:ac.abort.bind(ac),
 				signal:ac.signal,
 				preventTrigger:true,
 				transition:document.startViewTransition?.bind(document),
 				fetch:fetch.bind(window),
-				scroll_to:document.querySelector(attr(elt, "fx-scroll-to", "#notarealid")),
+				scroll_to:document.querySelector(attr(elt, "sf-scroll-to", "#notarealid")),
 			}
 			if (/TOGGLE CSS/.test(cfg.method)&&/CLASS/.test(cfg.swap.toUpperCase())) {
 				cfg.target.classList.toggle(cfg.action);
@@ -84,7 +84,7 @@
 				cfg.scroll_to.scrollIntoView({ behavior: 'smooth', block: 'start' });
 			}
 		}
-		elt.__fixi.evt = attr(elt, "fx-trigger", elt.matches("form") ? "submit" : elt.matches("input:not([type=button]),select,textarea") ? "change" : "click")
+		elt.__fixi.evt = attr(elt, "sf-trigger", elt.matches("form") ? "submit" : elt.matches("input:not([type=button]),select,textarea") ? "change" : "click")
 		elt.__fixi.evt=="load" ? elt.__fixi({preventDefault: function() {}}) : elt.addEventListener(elt.__fixi.evt, elt.__fixi, options)
 		send(elt, "inited", {}, false)
 	}
@@ -97,11 +97,11 @@
     }
     if (n.matches){
 			if (ignore(n)) return
-			if (n.matches("[fx-action]")) init(n)
+			if (n.matches("[sf-action]")) init(n)
 		}
-		if(n.querySelectorAll) n.querySelectorAll("[fx-action]").forEach(init)
+		if(n.querySelectorAll) n.querySelectorAll("[sf-action]").forEach(init)
 	}
-	document.addEventListener("fx:process", (evt)=>process(evt.target))
+	document.addEventListener("sf:process", (evt)=>process(evt.target))
 	document.addEventListener("DOMContentLoaded", ()=>{
 		document.__fixi_mo.observe(document.documentElement, {childList:true, subtree:true})
 		process(document.body)

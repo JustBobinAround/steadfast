@@ -5,3 +5,6 @@ edition = "2024"
 
 [dependencies]
 steadfast-parsing = {path="../steadfast-parsing"}
+steadfast-time = {path="../steadfast-time"}
+steadfast-uuid = {path="../steadfast-uuid"}
+steadfast-bytes = {path="../steadfast-bytes"}

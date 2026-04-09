@@ -8,3 +8,5 @@ steadfast-crypt = {path = "../steadfast-crypt"}
 steadfast-serializer = {path = "../steadfast-serializer"}
 steadfast-uuid = {path = "../steadfast-uuid"}
 steadfast-macros = {path = "../steadfast-macros"}
+steadfast-time = {path = "../steadfast-time"}
+steadfast-bytes = {path = "../steadfast-bytes"}

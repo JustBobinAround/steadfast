@@ -1,0 +1,9 @@
+[package]
+name = "steadfast-bytes"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+steadfast-uuid = {path="../steadfast-uuid"}
+steadfast-time = {path="../steadfast-time"}
+steadfast-crypt = {path="../steadfast-crypt"}

@@ -78,10 +78,7 @@ impl Struct {
 
         generic_traits.sort();
 
-        let s = generic_traits.iter().fold(String::new(), |mut s, t| {
-            s.push_str(&t);
-            s
-        });
+        let s: String = generic_traits.iter().map(|t| t.to_owned()).collect();
 
         let s = self.fields().iter().fold(s, |mut s, (name, field)| {
             s.push_str(&name);

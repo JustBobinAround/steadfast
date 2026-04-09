@@ -35,13 +35,11 @@ impl_primitive_serialize!(PrimType::I16, i16);
 impl_primitive_serialize!(PrimType::I32, i32);
 impl_primitive_serialize!(PrimType::I64, i64);
 impl_primitive_serialize!(PrimType::I128, i128);
-impl_primitive_serialize!(PrimType::Isize, isize);
 impl_primitive_serialize!(PrimType::U8, u8);
 impl_primitive_serialize!(PrimType::U16, u16);
 impl_primitive_serialize!(PrimType::U32, u32);
 impl_primitive_serialize!(PrimType::U64, u64);
 impl_primitive_serialize!(PrimType::U128, u128);
-impl_primitive_serialize!(PrimType::Usize, usize);
 impl_primitive_serialize!(PrimType::String, String);
 
 impl<T: Serialize> Serialize for Vec<T> {
@@ -90,13 +88,11 @@ impl_primitive_deserialize!(I16, i16);
 impl_primitive_deserialize!(I32, i32);
 impl_primitive_deserialize!(I64, i64);
 impl_primitive_deserialize!(I128, i128);
-impl_primitive_deserialize!(Isize, isize);
 impl_primitive_deserialize!(U8, u8);
 impl_primitive_deserialize!(U16, u16);
 impl_primitive_deserialize!(U32, u32);
 impl_primitive_deserialize!(U64, u64);
 impl_primitive_deserialize!(U128, u128);
-impl_primitive_deserialize!(Usize, usize);
 
 impl Deserialize for String {
     fn deserialize(dh: DataHolder) -> Result<Self, ()> {

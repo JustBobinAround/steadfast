@@ -20,6 +20,15 @@ name = "steadfast-async"
 version = "0.1.0"
 
 [[package]]
+name = "steadfast-bytes"
+version = "0.1.0"
+dependencies = [
+ "steadfast-crypt",
+ "steadfast-time",
+ "steadfast-uuid",
+]
+
+[[package]]
 name = "steadfast-crypt"
 version = "0.1.0"
 
@@ -27,9 +36,11 @@ version = "0.1.0"
 name = "steadfast-db"
 version = "0.1.0"
 dependencies = [
+ "steadfast-bytes",
  "steadfast-crypt",
  "steadfast-macros",
  "steadfast-serializer",
+ "steadfast-time",
  "steadfast-uuid",
 ]
 
@@ -61,7 +72,10 @@ version = "0.1.0"
 name = "steadfast-serializer"
 version = "0.1.0"
 dependencies = [
+ "steadfast-bytes",
  "steadfast-parsing",
+ "steadfast-time",
+ "steadfast-uuid",
 ]
 
 [[package]]

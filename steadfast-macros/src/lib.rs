@@ -6,12 +6,26 @@ use crate::{
     token_parser::{Struct, TokenParser},
 };
 use proc_macro::{TokenStream, TokenTree};
-use steadfast_uuid::UUID;
+use steadfast_crypt::SHA256;
 
 #[proc_macro]
 pub fn impl_extract_permutations(_item: TokenStream) -> TokenStream {
     let choices = ExtractType::all_choices();
     ExtractType::make_combinations(choices).parse().unwrap()
+}
+#[proc_macro]
+pub fn sha256_from_tokens(item: TokenStream) -> TokenStream {
+    let item_str = item.to_string();
+    let hash = SHA256::new(item_str.as_bytes());
+    let byte_str: String = hash
+        .inner_bytes()
+        .iter()
+        .map(|num| format!("{},", num))
+        .collect();
+
+    format!("::steadfast_crypt::SHA256::from_raw([{}])", byte_str)
+        .parse()
+        .expect("Failed to parse tokens into SHA256")
 }
 
 #[proc_macro_attribute]
@@ -332,29 +346,65 @@ pub fn derive_internal_steadfast_table(items: TokenStream) -> TokenStream {
                 .iter()
                 .map(|t| t.to_string())
                 .collect();
+            let struct_signature = data_struct.struct_signature();
             let struct_type_hash = format!(
                 "SHA256::from_raw([{}])",
-                data_struct.struct_signature().inner_bytes().iter().fold(
-                    String::new(),
-                    |mut s, b| {
+                struct_signature
+                    .inner_bytes()
+                    .iter()
+                    .fold(String::new(), |mut s, b| {
                         s.push_str(&b.to_string());
                         s.push(',');
                         s
-                    }
-                )
+                    })
             );
-            let field_mappings = data_struct
+            let (mappings, list, list_count) = data_struct
                 .fields()
                 .iter()
                 .filter(|field| field.1.helper() == "indexed")
-                .fold(String::new(), |mut s, field| {
-                    s.push('"');
-                    s.push_str(field.0.as_str());
-                    s.push_str("\"=>Some(");
-                    s.push_str(field.1.type_id_str().as_str());
-                    s.push_str("),");
-                    s
-                });
+                .fold(
+                    (String::new(), String::new(), 0),
+                    |(mut mappings, mut list, mut count), field| {
+                        mappings.push('"');
+                        list.push_str("(\"");
+                        mappings.push_str(field.0.as_str());
+                        list.push_str(field.0.as_str());
+                        mappings.push_str("\"=>Some(SHA256::from_raw([");
+                        list.push_str("\",SHA256::from_raw([");
+                        mappings = field
+                            .1
+                            .type_id()
+                            .combine(&struct_signature)
+                            .inner_bytes()
+                            .iter()
+                            .fold(mappings, |mut mappings, b| {
+                                mappings.push_str(&b.to_string());
+                                mappings.push(',');
+                                mappings
+                            });
+                        list = field
+                            .1
+                            .type_id()
+                            .combine(&struct_signature)
+                            .inner_bytes()
+                            .iter()
+                            .fold(list, |mut list, b| {
+                                list.push_str(&b.to_string());
+                                list.push(',');
+                                list
+                            });
+                        mappings.push_str("])),");
+                        list.push_str("])),");
+                        (mappings, list, count + 1)
+                    },
+                );
+            let cmp_entries: String = data_struct
+                .fields()
+                .iter()
+                .map(|(name, _field_data)| {
+                    format!("\"{}\" => Some(self.{}.cmp(&other.{})),", name, name, name)
+                })
+                .collect();
             let zero_table_trait = format!(
                 r#"impl{} crate::tables::STable for {}{} {{
                     fn table_name() -> &'static str {{
@@ -363,7 +413,21 @@ pub fn derive_internal_steadfast_table(items: TokenStream) -> TokenStream {
                     fn table_display_name() -> &'static str {{
                         "{}"
                     }}
-                    fn index_field_maps(field_name: &str) -> Option<SHA256> {{
+                    fn map_indexed_field_hash(field_name: &str) -> Option<SHA256> {{
+                        match field_name {{
+                            {}
+                            _ => None
+                        }}
+                    }}
+                    fn indexed_fields() -> &'static [(&'static str, SHA256)] {{
+                        const LIST: [(&'static str, SHA256); {}] = [
+                        {}
+                        ];
+
+                        &LIST
+                    }}
+                    
+                    fn cmp_field(&self, other: &Self, field_name: &str) -> Option<Ordering> {{
                         match field_name {{
                             {}
                             _ => None
@@ -377,7 +441,10 @@ pub fn derive_internal_steadfast_table(items: TokenStream) -> TokenStream {
                 idents,
                 data_struct.name(),
                 "TODO: Struct name to display name automation",
-                field_mappings,
+                mappings,
+                list_count,
+                list,
+                cmp_entries,
                 struct_type_hash,
                 struct_type_hash,
             );

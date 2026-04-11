@@ -22,15 +22,13 @@ version = "0.1.0"
 [[package]]
 name = "steadfast-bytes"
 version = "0.1.0"
-dependencies = [
- "steadfast-crypt",
- "steadfast-time",
- "steadfast-uuid",
-]
 
 [[package]]
 name = "steadfast-crypt"
 version = "0.1.0"
+dependencies = [
+ "steadfast-bytes",
+]
 
 [[package]]
 name = "steadfast-db"
@@ -81,10 +79,14 @@ dependencies = [
 [[package]]
 name = "steadfast-time"
 version = "0.1.0"
+dependencies = [
+ "steadfast-bytes",
+]
 
 [[package]]
 name = "steadfast-uuid"
 version = "0.1.0"
 dependencies = [
+ "steadfast-bytes",
  "steadfast-rand",
 ]

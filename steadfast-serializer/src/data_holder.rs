@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
-use steadfast_bytes::{FromBytes, ToBytes};
+use steadfast_bytes::{ByteSize, FromBytes, ToBytes};
 use steadfast_time::UTC;
 use steadfast_uuid::UUID;
 fn push_le_bytes<const N: usize, T: ToBytes<[u8; N]>>(val: T, mut bytes: Vec<u8>) -> Vec<u8> {
-    for b in val.to_sf_le_bytes() {
+    for b in val.to_bytes_le() {
         bytes.push(b);
     }
     bytes
@@ -37,11 +37,11 @@ impl_into_primtype!(UUID, UUID);
 impl_into_primtype!(u128, U128);
 // String(String),
 
-fn from_first_chunk<const N: usize, T: FromBytes<[u8; N]> + Into<PrimType>>(
+fn from_first_chunk<const N: usize, T: FromBytes<[u8; N]> + ByteSize + Into<PrimType>>(
     bytes: &[u8],
 ) -> Result<(usize, PrimType), DataHolderErr> {
     match bytes.first_chunk::<N>() {
-        Some(chunk) => Ok((T::BYTE_SIZE, <T>::from_sf_le_bytes(*chunk).into())),
+        Some(chunk) => Ok((T::BYTE_SIZE, <T>::from_bytes_le(*chunk).into())),
         None => Err(DataHolderErr::NotEnoughBytes {
             need: T::BYTE_SIZE,
             found: bytes.len(),
@@ -163,8 +163,8 @@ impl PartialEq for PrimType {
             (Bool(a), Bool(b)) => a == b,
             (Char(a), Char(b)) => a == b,
 
-            (F32(a), F32(b)) => a.to_le_bytes() == b.to_le_bytes(),
-            (F64(a), F64(b)) => a.to_le_bytes() == b.to_le_bytes(),
+            (F32(a), F32(b)) => a.to_bytes_le() == b.to_bytes_le(),
+            (F64(a), F64(b)) => a.to_bytes_le() == b.to_bytes_le(),
 
             (I8(a), I8(b)) => a == b,
             (I16(a), I16(b)) => a == b,

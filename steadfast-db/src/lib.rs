@@ -1,7 +1,13 @@
+mod address_entry;
 mod b_tree;
 mod field_map;
 mod tables;
-use crate::tables::STable;
+use crate::{
+    address_entry::AddressEntry,
+    b_tree::{BTreeIndex, IndexErr},
+    field_map::{FieldMap, FieldMapErr},
+    tables::STable,
+};
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
@@ -10,86 +16,6 @@ use std::{
 use steadfast_bytes::ToBytes;
 use steadfast_serializer::{DataHolder, Deserialize, Serialize};
 use steadfast_uuid::UUID;
-
-#[repr(C)]
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct AddressEntry {
-    pub uuid: UUID,
-    pub address: usize,
-    pub last_update: usize,
-    // pub table_id: SHA256,
-}
-
-impl AddressEntry {
-    pub const BYTE_SIZE: usize = 32;
-
-    pub fn dealloc_entry(&self) -> Self {
-        let mut uuid = self.uuid.clone();
-        uuid.0 = uuid.0 & 0x0000_0000_FFFF_FFFF_FFFF_FFFF_FFFF_FFFF;
-
-        AddressEntry {
-            uuid,
-            address: self.address,
-            last_update: self.last_update,
-            // table_id: self.table_id.clone(), //TODO: see if we need this clone
-        }
-    }
-
-    pub fn is_deallocated(&self) -> bool {
-        self.uuid.extract_timestamp() == 0
-    }
-
-    pub fn to_bytes(&self) -> [u8; 32] {
-        self.uuid
-            .as_u128()
-            .to_le_bytes()
-            .into_iter()
-            .chain(
-                self.address
-                    .to_le_bytes()
-                    .into_iter()
-                    .chain(self.last_update.to_le_bytes().into_iter()),
-            )
-            .enumerate()
-            .fold([0u8; 32], |mut buf, (i, b)| {
-                buf[i] = b;
-                buf
-            })
-    }
-
-    // pub fn from_bytes(buf: [u8; 32]) -> Result<Self, ()> {
-    //     let uuid = UUID::from_u128(<u128>::from_le_bytes(
-    //         <[u8; 16]>::try_from(&buf[0..16]).expect("guarenteed 0..16 slice failed to convert"),
-    //     ));
-
-    //     let address = <usize>::from_le_bytes(
-    //         <[u8; 8]>::try_from(&buf[16..24]).expect("guarenteed 16..24 slice failed to convert"),
-    //     );
-    //     let last_update = <usize>::from_le_bytes(
-    //         <[u8; 8]>::try_from(&buf[24..32]).expect("guarenteed 24..32 slice failed to convert"),
-    //     );
-    //     let table_id = <usize>::from_le_bytes(
-    //         <[u8; 8]>::try_from(&buf[32..40]).expect("guarenteed 32..40 slice failed to convert"),
-    //     );
-    //     Ok(Self {
-    //         uuid,
-    //         address,
-    //         last_update,
-    //         table_id,
-    //     })
-    // }
-}
-
-impl Default for AddressEntry {
-    fn default() -> Self {
-        AddressEntry {
-            uuid: UUID::default(),
-            address: 0,
-            last_update: 0,
-            // table_id: 0,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub enum DatabaseErr {
@@ -101,6 +27,20 @@ pub enum DatabaseErr {
     NoEntryFound,
     InvalidTableType,
     FailedToDeserialize,
+    IndexErr(IndexErr),
+    FieldMapErr(FieldMapErr),
+}
+
+impl From<FieldMapErr> for DatabaseErr {
+    fn from(value: FieldMapErr) -> Self {
+        Self::FieldMapErr(value)
+    }
+}
+
+impl From<IndexErr> for DatabaseErr {
+    fn from(value: IndexErr) -> Self {
+        Self::IndexErr(value)
+    }
 }
 
 #[derive(Debug)]
@@ -110,7 +50,8 @@ pub struct Database<'a> {
     reader: BufReader<&'a File>,
     file_size: usize,
     read_offset: usize,
-    // index: HashMap<UUID, AddressEntry>,
+    index: BTreeIndex<'a, 4096>,
+    field_map: FieldMap<'a, 4096>,
 }
 
 impl<'a> Database<'a> {
@@ -185,8 +126,8 @@ impl<'a> Database<'a> {
         let uuid_bytes = &uuid.as_u128().to_le_bytes();
         let data_len_bytes = &buf.len().to_le_bytes();
         let last_update_bytes = &last_update.to_le_bytes();
-        let table_id_bytes = T::TABLE_ID.to_sf_le_bytes();
-        let table_type_bytes = T::TYPE_HASH.to_sf_le_bytes();
+        let table_id_bytes = T::TABLE_ID.to_bytes_le();
+        let table_type_bytes = T::TYPE_HASH.to_bytes_le();
         self.write_bytes_exact(uuid_bytes)?;
         self.write_bytes_exact(&table_id_bytes)?;
         self.write_bytes_exact(&table_type_bytes)?;
@@ -318,7 +259,11 @@ impl<'a> Database<'a> {
         Ok(self)
     }
 
-    pub fn new(db_file: &'a File) -> Result<Self, DatabaseErr> {
+    pub fn new(
+        db_file: &'a File,
+        map_file: &'a mut File,
+        idx_file: &'a mut File,
+    ) -> Result<Self, DatabaseErr> {
         let writer = BufWriter::new(db_file);
         let reader = BufReader::new(db_file);
         // let index = HashMap::new();
@@ -331,7 +276,8 @@ impl<'a> Database<'a> {
             reader,
             file_size,
             read_offset,
-            // index,
+            index: BTreeIndex::new(idx_file)?, // index,
+            field_map: FieldMap::new(map_file)?,
         }
         .init_index()?;
 

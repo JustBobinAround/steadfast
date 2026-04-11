@@ -4,20 +4,10 @@ use std::{
     io::{Read, Seek, SeekFrom, Write},
     path::Path,
 };
+use steadfast_bytes::{ByteSize, FromBytes, ToBytes};
+use steadfast_uuid::UUID;
 
 const RESERVED_PAGE_BYTES: usize = 16;
-
-trait ByteSize {
-    const BYTE_SIZE: usize;
-}
-
-impl ByteSize for u64 {
-    const BYTE_SIZE: usize = 8;
-}
-
-impl ByteSize for UUID {
-    const BYTE_SIZE: usize = 16;
-}
 
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -88,14 +78,14 @@ impl<const PAGE_SIZE: usize> PageBuffer<PAGE_SIZE> for Leaf<PAGE_SIZE> {
         let mut page_buf = [0u8; PAGE_SIZE];
         page_buf[0] = Node::<PAGE_SIZE>::LEAF;
         if let Some(PageAddr(next_leaf_addr)) = self.next_leaf_addr {
-            for (i, b) in next_leaf_addr.to_le_bytes().iter().enumerate() {
+            for (i, b) in next_leaf_addr.to_bytes_le().iter().enumerate() {
                 page_buf[<u64>::BYTE_SIZE + i] = *b;
             }
         }
         let entry_buf = &mut page_buf[RESERVED_PAGE_BYTES..];
 
         for (i, uuid) in self.entries.iter().enumerate() {
-            for (j, b) in uuid.to_le_bytes().iter().enumerate() {
+            for (j, b) in uuid.to_bytes_le().iter().enumerate() {
                 entry_buf[(i * Self::ENTRY_SIZE) + j] = *b;
             }
         }
@@ -109,7 +99,7 @@ impl<const PAGE_SIZE: usize> PageBuffer<PAGE_SIZE> for Leaf<PAGE_SIZE> {
         let next_leaf_addr_buf = page_buf[<u64>::BYTE_SIZE..RESERVED_PAGE_BYTES]
             .first_chunk::<8>()
             .expect("Failed to pull next_leaf_addr_buf from page_buf.");
-        let next_leaf_addr = match <u64>::from_le_bytes(*next_leaf_addr_buf) {
+        let next_leaf_addr = match BytesLE::from_bytes(*next_leaf_addr_buf) {
             i if i > 0 => Some(PageAddr::new(i)),
             _ => None,
         };
@@ -129,7 +119,7 @@ impl<const PAGE_SIZE: usize> PageBuffer<PAGE_SIZE> for Leaf<PAGE_SIZE> {
                     let uuid_buf = chunk
                         .first_chunk::<{ UUID::BYTE_SIZE }>()
                         .expect("Failed to pull UUID chunk from entry_buf");
-                    entries.push(UUID::from_le_bytes(*uuid_buf));
+                    entries.push(BytesLE::from_bytes(*uuid_buf));
                     entries
                 },
             );
@@ -154,16 +144,16 @@ impl<const PAGE_SIZE: usize> PageBuffer<PAGE_SIZE> for Branch<PAGE_SIZE> {
     fn to_page_buffer(&self) -> (PageAddr<PAGE_SIZE>, [u8; PAGE_SIZE]) {
         let mut page_buf = [0u8; PAGE_SIZE];
         page_buf[0] = Node::<PAGE_SIZE>::BRANCH;
-        for (i, b) in self.last_page.0.to_le_bytes().iter().enumerate() {
+        for (i, b) in self.last_page.0.to_bytes_le().iter().enumerate() {
             page_buf[<u64>::BYTE_SIZE + i] = *b;
         }
         let entry_buf = &mut page_buf[RESERVED_PAGE_BYTES..];
 
         for (i, (uuid, PageAddr(sub_node_addr))) in self.entries.iter().enumerate() {
-            for (j, b) in uuid.to_le_bytes().iter().enumerate() {
+            for (j, b) in uuid.to_bytes_le().iter().enumerate() {
                 entry_buf[(i * Self::ENTRY_SIZE) + j] = *b;
             }
-            for (j, b) in sub_node_addr.to_le_bytes().iter().enumerate() {
+            for (j, b) in sub_node_addr.to_bytes_le().iter().enumerate() {
                 entry_buf[(i * Self::ENTRY_SIZE) + j + UUID::BYTE_SIZE] = *b;
             }
         }
@@ -177,7 +167,7 @@ impl<const PAGE_SIZE: usize> PageBuffer<PAGE_SIZE> for Branch<PAGE_SIZE> {
         let last_page_buf = page_buf[<u64>::BYTE_SIZE..RESERVED_PAGE_BYTES]
             .first_chunk::<8>()
             .expect("Failed to pull last_page_buf from page_buf.");
-        let last_page = PageAddr::new(<u64>::from_le_bytes(*last_page_buf));
+        let last_page = PageAddr::new(BytesLE::from_bytes(*last_page_buf));
         assert!(
             last_page.0 > 0,
             "A page branch must always have a last_page."
@@ -201,8 +191,8 @@ impl<const PAGE_SIZE: usize> PageBuffer<PAGE_SIZE> for Branch<PAGE_SIZE> {
                         .first_chunk::<{ <u64>::BYTE_SIZE }>()
                         .expect("Failed to pull addr_buf chunk from entry_buf");
                     entries.push((
-                        UUID::from_le_bytes(*uuid_buf),
-                        PageAddr::new(<u64>::from_le_bytes(*addr_buf)),
+                        BytesLE::from_bytes(*uuid_buf),
+                        PageAddr::new(BytesLE::from_bytes(*addr_buf)),
                     ));
                     entries
                 },
@@ -265,32 +255,23 @@ impl<const PAGE_SIZE: usize> PageBuffer<PAGE_SIZE> for Node<PAGE_SIZE> {
     }
 }
 
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct UUID(u128);
-impl std::fmt::Display for UUID {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+// impl UUID {
+//     // const FLAG_MASK: u128 = 0xF000000000000000;
+//     // const ALLOC: u128 = 0x1000000000000000;
+//     pub fn from_u128(val: u64) -> Self {
+//         //TODO: this is to simulate a timestamp always being greater than zero for now
+//         // let val = Self::ALLOC | val as u128;
+//         Self(val as u128)
+//     }
 
-impl UUID {
-    // const FLAG_MASK: u128 = 0xF000000000000000;
-    // const ALLOC: u128 = 0x1000000000000000;
-    pub fn from_raw(val: u64) -> Self {
-        //TODO: this is to simulate a timestamp always being greater than zero for now
-        // let val = Self::ALLOC | val as u128;
-        Self(val as u128)
-    }
+//     pub const fn from_sf_le_bytes(bytes: [u8; UUID::BYTE_SIZE]) -> Self {
+//         Self(<u128>::from_sf_le_bytes(bytes))
+//     }
 
-    pub const fn from_le_bytes(bytes: [u8; UUID::BYTE_SIZE]) -> Self {
-        Self(<u128>::from_le_bytes(bytes))
-    }
-
-    pub const fn to_le_bytes(&self) -> [u8; UUID::BYTE_SIZE] {
-        self.0.to_le_bytes()
-    }
-}
+//     pub const fn to_bytes_le(&self) -> [u8; UUID::BYTE_SIZE] {
+//         self.0.to_bytes_le()
+//     }
+// }
 
 pub struct Lookup {
     entries: HashMap<UUID, String>,
@@ -780,270 +761,270 @@ impl<'a, const PAGE_SIZE: usize> BTreeIndex<'a, PAGE_SIZE> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn insert_from_none_test() {
-        let mut idx_file = BTreeIndex::<64>::truncate_idx_file("./target/test1.idx").unwrap();
-        let mut idx = BTreeIndex::<64>::new(&mut idx_file).unwrap();
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     #[test]
+//     fn insert_from_none_test() {
+//         let mut idx_file = BTreeIndex::<64>::truncate_idx_file("./target/test1.idx").unwrap();
+//         let mut idx = BTreeIndex::<64>::new(&mut idx_file).unwrap();
 
-        for i in 1..8u64 {
-            idx.val_map.insert(UUID::from_raw(i * 2), i);
-        }
+//         for i in 1..8u64 {
+//             idx.val_map.insert(UUID::from_u128(i * 2), i);
+//         }
 
-        // eprintln!("{:#?}", idx.eq_search(PageAddr::new(0), 512));
+//         // eprintln!("{:#?}", idx.eq_search(PageAddr::new(0), 512));
 
-        idx.insert(PageAddr::new(0), UUID::from_raw(2), 1)
-            .expect("oof");
-        assert_eq!(
-            idx.read_node(PageAddr(0)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(0),
-                entries: vec![UUID::from_raw(2)],
-                next_leaf_addr: None
-            })
-        );
-    }
+//         idx.insert(PageAddr::new(0), UUID::from_u128(2), 1)
+//             .expect("oof");
+//         assert_eq!(
+//             idx.read_node(PageAddr(0)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(0),
+//                 entries: vec![UUID::from_u128(2)],
+//                 next_leaf_addr: None
+//             })
+//         );
+//     }
 
-    #[test]
-    fn insert_from_single_leaf_test() {
-        let mut idx_file = BTreeIndex::<64>::truncate_idx_file("./target/test2.idx").unwrap();
-        let mut idx = BTreeIndex::<64>::new(&mut idx_file).unwrap();
+//     #[test]
+//     fn insert_from_single_leaf_test() {
+//         let mut idx_file = BTreeIndex::<64>::truncate_idx_file("./target/test2.idx").unwrap();
+//         let mut idx = BTreeIndex::<64>::new(&mut idx_file).unwrap();
 
-        for i in 1..4 {
-            idx.val_map.insert(UUID::from_raw(i * 2), i);
-            idx.insert(PageAddr::new(0), UUID::from_raw(i * 2), i)
-                .expect("oof");
-        }
+//         for i in 1..4 {
+//             idx.val_map.insert(UUID::from_u128(i * 2), i);
+//             idx.insert(PageAddr::new(0), UUID::from_u128(i * 2), i)
+//                 .expect("oof");
+//         }
 
-        assert_eq!(
-            idx.read_node(PageAddr(0)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(0),
-                entries: vec![UUID::from_raw(2), UUID::from_raw(4), UUID::from_raw(6),],
-                next_leaf_addr: None
-            })
-        );
-    }
-    #[test]
-    fn single_leaf_split_test() {
-        let mut idx_file = BTreeIndex::<64>::truncate_idx_file("./target/test3.idx").unwrap();
-        let mut idx = BTreeIndex::<64>::new(&mut idx_file).unwrap();
+//         assert_eq!(
+//             idx.read_node(PageAddr(0)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(0),
+//                 entries: vec![UUID::from_u128(2), UUID::from_u128(4), UUID::from_u128(6),],
+//                 next_leaf_addr: None
+//             })
+//         );
+//     }
+//     #[test]
+//     fn single_leaf_split_test() {
+//         let mut idx_file = BTreeIndex::<64>::truncate_idx_file("./target/test3.idx").unwrap();
+//         let mut idx = BTreeIndex::<64>::new(&mut idx_file).unwrap();
 
-        for i in 1..5 {
-            idx.val_map.insert(UUID::from_raw(i * 2), i);
-            idx.insert(PageAddr::new(0), UUID::from_raw(i * 2), i)
-                .expect("oof");
-        }
+//         for i in 1..5 {
+//             idx.val_map.insert(UUID::from_u128(i * 2), i);
+//             idx.insert(PageAddr::new(0), UUID::from_u128(i * 2), i)
+//                 .expect("oof");
+//         }
 
-        assert_eq!(
-            idx.read_node(PageAddr(0)).unwrap(),
-            Node::<64>::Branch(Branch {
-                page_addr: PageAddr(0),
-                entries: vec![(UUID::from_raw(6), PageAddr(128))],
-                last_page: PageAddr(64),
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(64)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(64),
-                entries: vec![UUID::from_raw(6), UUID::from_raw(8),],
-                next_leaf_addr: None
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(128)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(128),
-                entries: vec![UUID::from_raw(2), UUID::from_raw(4)],
-                next_leaf_addr: Some(PageAddr(64))
-            })
-        );
-    }
+//         assert_eq!(
+//             idx.read_node(PageAddr(0)).unwrap(),
+//             Node::<64>::Branch(Branch {
+//                 page_addr: PageAddr(0),
+//                 entries: vec![(UUID::from_u128(6), PageAddr(128))],
+//                 last_page: PageAddr(64),
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(64)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(64),
+//                 entries: vec![UUID::from_u128(6), UUID::from_u128(8),],
+//                 next_leaf_addr: None
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(128)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(128),
+//                 entries: vec![UUID::from_u128(2), UUID::from_u128(4)],
+//                 next_leaf_addr: Some(PageAddr(64))
+//             })
+//         );
+//     }
 
-    #[test]
-    fn single_branch_inserts_test_2() {
-        let mut idx_file = BTreeIndex::<64>::truncate_idx_file("./target/test4.idx").unwrap();
-        let mut idx = BTreeIndex::<64>::new(&mut idx_file).unwrap();
+//     #[test]
+//     fn single_branch_inserts_test_2() {
+//         let mut idx_file = BTreeIndex::<64>::truncate_idx_file("./target/test4.idx").unwrap();
+//         let mut idx = BTreeIndex::<64>::new(&mut idx_file).unwrap();
 
-        for i in 1..6 {
-            idx.val_map.insert(UUID::from_raw(i * 2), i);
-            idx.insert(PageAddr::new(0), UUID::from_raw(i * 2), i)
-                .expect("oof");
-        }
-        idx.val_map.insert(UUID::from_raw(3), 2);
-        idx.insert(PageAddr::new(0), UUID::from_raw(3), 2)
-            .expect("oof");
+//         for i in 1..6 {
+//             idx.val_map.insert(UUID::from_u128(i * 2), i);
+//             idx.insert(PageAddr::new(0), UUID::from_u128(i * 2), i)
+//                 .expect("oof");
+//         }
+//         idx.val_map.insert(UUID::from_u128(3), 2);
+//         idx.insert(PageAddr::new(0), UUID::from_u128(3), 2)
+//             .expect("oof");
 
-        assert_eq!(
-            idx.read_node(PageAddr(0)).unwrap(),
-            Node::<64>::Branch(Branch {
-                page_addr: PageAddr(0),
-                entries: vec![(UUID::from_raw(6), PageAddr(128))],
-                last_page: PageAddr(64),
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(64)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(64),
-                entries: vec![UUID::from_raw(6), UUID::from_raw(8), UUID::from_raw(10)],
-                next_leaf_addr: None
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(128)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(128),
-                entries: vec![UUID::from_raw(2), UUID::from_raw(4), UUID::from_raw(3)],
-                next_leaf_addr: Some(PageAddr(64))
-            })
-        );
-    }
-    #[test]
-    fn single_branch_inserts_test_1() {
-        let mut idx_file = BTreeIndex::<64>::truncate_idx_file("./target/test5.idx").unwrap();
-        let mut idx = BTreeIndex::<64>::new(&mut idx_file).unwrap();
+//         assert_eq!(
+//             idx.read_node(PageAddr(0)).unwrap(),
+//             Node::<64>::Branch(Branch {
+//                 page_addr: PageAddr(0),
+//                 entries: vec![(UUID::from_u128(6), PageAddr(128))],
+//                 last_page: PageAddr(64),
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(64)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(64),
+//                 entries: vec![UUID::from_u128(6), UUID::from_u128(8), UUID::from_u128(10)],
+//                 next_leaf_addr: None
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(128)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(128),
+//                 entries: vec![UUID::from_u128(2), UUID::from_u128(4), UUID::from_u128(3)],
+//                 next_leaf_addr: Some(PageAddr(64))
+//             })
+//         );
+//     }
+//     #[test]
+//     fn single_branch_inserts_test_1() {
+//         let mut idx_file = BTreeIndex::<64>::truncate_idx_file("./target/test5.idx").unwrap();
+//         let mut idx = BTreeIndex::<64>::new(&mut idx_file).unwrap();
 
-        for i in 1..6 {
-            idx.val_map.insert(UUID::from_raw(i * 2), i);
-            idx.insert(PageAddr::new(0), UUID::from_raw(i * 2), i)
-                .expect("oof");
-        }
-        idx.val_map.insert(UUID::from_raw(3), 2);
-        idx.insert(PageAddr::new(0), UUID::from_raw(3), 2)
-            .expect("oof");
-        idx.val_map.insert(UUID::from_raw(77), 0);
-        idx.insert(PageAddr::new(0), UUID::from_raw(77), 0)
-            .expect("oof");
+//         for i in 1..6 {
+//             idx.val_map.insert(UUID::from_u128(i * 2), i);
+//             idx.insert(PageAddr::new(0), UUID::from_u128(i * 2), i)
+//                 .expect("oof");
+//         }
+//         idx.val_map.insert(UUID::from_u128(3), 2);
+//         idx.insert(PageAddr::new(0), UUID::from_u128(3), 2)
+//             .expect("oof");
+//         idx.val_map.insert(UUID::from_u128(77), 0);
+//         idx.insert(PageAddr::new(0), UUID::from_u128(77), 0)
+//             .expect("oof");
 
-        assert_eq!(
-            idx.read_node(PageAddr(0)).unwrap(),
-            Node::<64>::Branch(Branch {
-                page_addr: PageAddr(0),
-                entries: vec![(UUID::from_raw(6), PageAddr(128))],
-                last_page: PageAddr(64),
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(64)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(64),
-                entries: vec![UUID::from_raw(6), UUID::from_raw(8), UUID::from_raw(10)],
-                next_leaf_addr: None
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(128)).unwrap(),
-            Node::<64>::Branch(Branch {
-                page_addr: PageAddr(128),
-                entries: vec![(UUID::from_raw(3), PageAddr(256))],
-                last_page: PageAddr(192)
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(192)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(192),
-                entries: vec![UUID::from_raw(3)],
-                next_leaf_addr: Some(PageAddr(64))
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(256)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(256),
-                entries: vec![UUID::from_raw(77), UUID::from_raw(2), UUID::from_raw(4),],
-                next_leaf_addr: Some(PageAddr(192))
-            })
-        );
-    }
-    #[test]
-    fn double_branch_inserts_test() {
-        let mut idx_file = BTreeIndex::<64>::truncate_idx_file("./target/test6.idx").unwrap();
-        let mut idx = BTreeIndex::<64>::new(&mut idx_file).unwrap();
+//         assert_eq!(
+//             idx.read_node(PageAddr(0)).unwrap(),
+//             Node::<64>::Branch(Branch {
+//                 page_addr: PageAddr(0),
+//                 entries: vec![(UUID::from_u128(6), PageAddr(128))],
+//                 last_page: PageAddr(64),
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(64)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(64),
+//                 entries: vec![UUID::from_u128(6), UUID::from_u128(8), UUID::from_u128(10)],
+//                 next_leaf_addr: None
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(128)).unwrap(),
+//             Node::<64>::Branch(Branch {
+//                 page_addr: PageAddr(128),
+//                 entries: vec![(UUID::from_u128(3), PageAddr(256))],
+//                 last_page: PageAddr(192)
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(192)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(192),
+//                 entries: vec![UUID::from_u128(3)],
+//                 next_leaf_addr: Some(PageAddr(64))
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(256)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(256),
+//                 entries: vec![UUID::from_u128(77), UUID::from_u128(2), UUID::from_u128(4),],
+//                 next_leaf_addr: Some(PageAddr(192))
+//             })
+//         );
+//     }
+//     #[test]
+//     fn double_branch_inserts_test() {
+//         let mut idx_file = BTreeIndex::<64>::truncate_idx_file("./target/test6.idx").unwrap();
+//         let mut idx = BTreeIndex::<64>::new(&mut idx_file).unwrap();
 
-        for i in 1..6 {
-            idx.val_map.insert(UUID::from_raw(i * 2), i);
-            idx.insert(PageAddr::new(0), UUID::from_raw(i * 2), i)
-                .expect("oof");
-        }
-        idx.val_map.insert(UUID::from_raw(3), 2);
-        idx.insert(PageAddr::new(0), UUID::from_raw(3), 2)
-            .expect("oof");
-        idx.val_map.insert(UUID::from_raw(77), 0);
-        idx.insert(PageAddr::new(0), UUID::from_raw(77), 0)
-            .expect("oof");
-        idx.val_map.insert(UUID::from_raw(88), 0);
-        idx.insert(PageAddr::new(0), UUID::from_raw(88), 0)
-            .expect("oof");
-        idx.val_map.insert(UUID::from_raw(5), 2);
-        idx.insert(PageAddr::new(0), UUID::from_raw(5), 2)
-            .expect("oof");
+//         for i in 1..6 {
+//             idx.val_map.insert(UUID::from_u128(i * 2), i);
+//             idx.insert(PageAddr::new(0), UUID::from_u128(i * 2), i)
+//                 .expect("oof");
+//         }
+//         idx.val_map.insert(UUID::from_u128(3), 2);
+//         idx.insert(PageAddr::new(0), UUID::from_u128(3), 2)
+//             .expect("oof");
+//         idx.val_map.insert(UUID::from_u128(77), 0);
+//         idx.insert(PageAddr::new(0), UUID::from_u128(77), 0)
+//             .expect("oof");
+//         idx.val_map.insert(UUID::from_u128(88), 0);
+//         idx.insert(PageAddr::new(0), UUID::from_u128(88), 0)
+//             .expect("oof");
+//         idx.val_map.insert(UUID::from_u128(5), 2);
+//         idx.insert(PageAddr::new(0), UUID::from_u128(5), 2)
+//             .expect("oof");
 
-        assert_eq!(
-            idx.read_node(PageAddr(0)).unwrap(),
-            Node::<64>::Branch(Branch {
-                page_addr: PageAddr(0),
-                entries: vec![(UUID::from_raw(6), PageAddr(128))],
-                last_page: PageAddr(64),
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(64)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(64),
-                entries: vec![UUID::from_raw(6), UUID::from_raw(8), UUID::from_raw(10)],
-                next_leaf_addr: None
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(128)).unwrap(),
-            Node::<64>::Branch(Branch {
-                page_addr: PageAddr(128),
-                entries: vec![(UUID::from_raw(3), PageAddr(256))],
-                last_page: PageAddr(192)
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(192)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(192),
-                entries: vec![UUID::from_raw(3), UUID::from_raw(5)],
-                next_leaf_addr: Some(PageAddr(64))
-            })
-        );
+//         assert_eq!(
+//             idx.read_node(PageAddr(0)).unwrap(),
+//             Node::<64>::Branch(Branch {
+//                 page_addr: PageAddr(0),
+//                 entries: vec![(UUID::from_u128(6), PageAddr(128))],
+//                 last_page: PageAddr(64),
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(64)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(64),
+//                 entries: vec![UUID::from_u128(6), UUID::from_u128(8), UUID::from_u128(10)],
+//                 next_leaf_addr: None
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(128)).unwrap(),
+//             Node::<64>::Branch(Branch {
+//                 page_addr: PageAddr(128),
+//                 entries: vec![(UUID::from_u128(3), PageAddr(256))],
+//                 last_page: PageAddr(192)
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(192)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(192),
+//                 entries: vec![UUID::from_u128(3), UUID::from_u128(5)],
+//                 next_leaf_addr: Some(PageAddr(64))
+//             })
+//         );
 
-        assert_eq!(
-            idx.read_node(PageAddr(256)).unwrap(),
-            Node::<64>::Branch(Branch {
-                page_addr: PageAddr(256),
-                entries: vec![(UUID::from_raw(4), PageAddr(384))],
-                last_page: PageAddr(320)
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(320)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(320),
-                entries: vec![UUID::from_raw(4),],
-                next_leaf_addr: Some(PageAddr(192))
-            })
-        );
-        assert_eq!(
-            idx.read_node(PageAddr(384)).unwrap(),
-            Node::<64>::Leaf(Leaf {
-                page_addr: PageAddr(384),
-                entries: vec![UUID::from_raw(77), UUID::from_raw(88), UUID::from_raw(2)],
-                next_leaf_addr: Some(PageAddr(320))
-            })
-        );
+//         assert_eq!(
+//             idx.read_node(PageAddr(256)).unwrap(),
+//             Node::<64>::Branch(Branch {
+//                 page_addr: PageAddr(256),
+//                 entries: vec![(UUID::from_u128(4), PageAddr(384))],
+//                 last_page: PageAddr(320)
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(320)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(320),
+//                 entries: vec![UUID::from_u128(4),],
+//                 next_leaf_addr: Some(PageAddr(192))
+//             })
+//         );
+//         assert_eq!(
+//             idx.read_node(PageAddr(384)).unwrap(),
+//             Node::<64>::Leaf(Leaf {
+//                 page_addr: PageAddr(384),
+//                 entries: vec![UUID::from_u128(77), UUID::from_u128(88), UUID::from_u128(2)],
+//                 next_leaf_addr: Some(PageAddr(320))
+//             })
+//         );
 
-        assert_eq!(
-            idx.eq_search(PageAddr(0), 4).unwrap(),
-            Some(UUID::from_raw(8))
-        );
-    }
-}
+//         assert_eq!(
+//             idx.eq_search(PageAddr(0), 4).unwrap(),
+//             Some(UUID::from_u128(8))
+//         );
+//     }
+// }

@@ -1,3 +1,4 @@
+use steadfast_bytes::{AsArraySelf, ByteSize, FromBytes, ToBytes, TypeCode};
 /// See "Secure Hash Standard" in FIPS PUB 180-4 on [NIST](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SHA256([u32; 8]);
@@ -196,6 +197,91 @@ impl SHA256 {
     }
 }
 
+impl ByteSize for SHA256 {
+    const BYTE_SIZE: usize = 32;
+    const TYPE_CODE: TypeCode = TypeCode::Extension(19);
+}
+
+impl<T> FromBytes<T> for SHA256
+where
+    T: AsArraySelf<32>,
+{
+    fn from_bytes_le(bytes: T) -> Self {
+        Self::from_raw(
+            bytes
+                .as_array_self()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .enumerate()
+                .fold([0; 8], |mut num, (i, chunk)| {
+                    num[i] = <u32>::from_le_bytes(*chunk);
+                    num
+                }),
+        )
+    }
+    fn from_bytes_be(bytes: T) -> Self {
+        Self::from_raw(
+            bytes
+                .as_array_self()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .enumerate()
+                .fold([0; 8], |mut num, (i, chunk)| {
+                    num[i] = <u32>::from_be_bytes(*chunk);
+                    num
+                }),
+        )
+    }
+    fn from_bytes_ne(bytes: T) -> Self {
+        Self::from_raw(
+            bytes
+                .as_array_self()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .enumerate()
+                .fold([0; 8], |mut num, (i, chunk)| {
+                    num[i] = <u32>::from_ne_bytes(*chunk);
+                    num
+                }),
+        )
+    }
+}
+
+impl ToBytes<[u8; 32]> for SHA256 {
+    fn to_bytes_le(&self) -> [u8; 32] {
+        let mut bytes = [0u8; 32];
+        bytes
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(self.inner_bytes().iter().map(|num| num.to_le_bytes()))
+            .for_each(|(chunk, num_chunk)| chunk.copy_from_slice(&num_chunk));
+        bytes
+    }
+    fn to_bytes_be(&self) -> [u8; 32] {
+        let mut bytes = [0u8; 32];
+        bytes
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(self.inner_bytes().iter().map(|num| num.to_be_bytes()))
+            .for_each(|(chunk, num_chunk)| chunk.copy_from_slice(&num_chunk));
+        bytes
+    }
+    fn to_bytes_ne(&self) -> [u8; 32] {
+        let mut bytes = [0u8; 32];
+        bytes
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(self.inner_bytes().iter().map(|num| num.to_ne_bytes()))
+            .for_each(|(chunk, num_chunk)| chunk.copy_from_slice(&num_chunk));
+        bytes
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use super::Database;
 use steadfast_crypt::SHA256;
-use steadfast_macros::{sha256_from_tokens, InternalTableSF};
+use steadfast_macros::{InternalTableSF, sha256_from_tokens};
 use steadfast_serializer::{DataHolder, Deserialize, PrimType, Serialize};
 use steadfast_time::UTC;
 use steadfast_uuid::UUID;

@@ -1,4 +1,5 @@
 use std::{cmp::Ordering, str::FromStr};
+use steadfast_bytes::{AsArraySelf, ByteSize, FromBytes, ToBytes, TypeCode};
 use steadfast_rand::Random;
 
 #[repr(transparent)]
@@ -7,23 +8,10 @@ pub struct UUID(pub u128);
 
 impl UUID {
     pub fn as_u128(&self) -> u128 {
-        // let data_1 = (self.data_1 as u128) << 96;
-        // let data_2 = (self.data_2 as u128) << 80;
-        // let data_3 = (self.data_3 as u128) << 64;
-        // let data_4 = <u64>::from_le_bytes(self.data_4) as u128;
-
-        // data_1 | data_2 | data_3 | data_4
         self.0
     }
 
     pub fn from_u128(n: u128) -> Self {
-        // UUID {
-        //     data_1: (n >> 96) as u32,
-        //     data_2: (n >> 80) as u16,
-        //     data_3: (n >> 64) as u16,
-        //     data_4: (n as u64).to_le_bytes(),
-        // }
-
         Self(n)
     }
 
@@ -213,5 +201,37 @@ mod tests {
         let t_ms = 12093472938478 & 0xFFFF_FFFF_FFFF_0000; // can only store 48 bits
         let uuid = UUID::default().encode_time(t_ms);
         assert_eq!(t_ms, uuid.extract_timestamp());
+    }
+}
+
+impl ByteSize for UUID {
+    const BYTE_SIZE: usize = 16;
+    const TYPE_CODE: TypeCode = TypeCode::Extension(17);
+}
+
+impl<T> FromBytes<T> for UUID
+where
+    T: AsArraySelf<16>,
+{
+    fn from_bytes_le(bytes: T) -> Self {
+        UUID::from_u128(<u128>::from_le_bytes(bytes.as_array_self()))
+    }
+    fn from_bytes_be(bytes: T) -> Self {
+        UUID::from_u128(<u128>::from_be_bytes(bytes.as_array_self()))
+    }
+    fn from_bytes_ne(bytes: T) -> Self {
+        UUID::from_u128(<u128>::from_ne_bytes(bytes.as_array_self()))
+    }
+}
+
+impl ToBytes<[u8; 16]> for UUID {
+    fn to_bytes_le(&self) -> [u8; 16] {
+        self.0.to_le_bytes()
+    }
+    fn to_bytes_be(&self) -> [u8; 16] {
+        self.0.to_be_bytes()
+    }
+    fn to_bytes_ne(&self) -> [u8; 16] {
+        self.0.to_ne_bytes()
     }
 }

@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::time::Duration;
+use steadfast_bytes::{AsArraySelf, ByteSize, FromBytes, ToBytes, TypeCode};
 pub enum TimeErrSF {
     FailedToFetch,
 }
@@ -33,15 +34,6 @@ impl UTC {
         })
     }
 
-    pub fn to_le_bytes(&self) -> [u8; 8] {
-        (self.time_since_unix_epoch.as_millis() as u64).to_le_bytes()
-    }
-
-    pub fn from_le_bytes(bytes: [u8; 8]) -> Self {
-        let millis = <u64>::from_le_bytes(bytes);
-        Self::from_unix_epoch_millis(millis)
-    }
-
     pub fn from_unix_epoch_millis(millis: u64) -> Self {
         Self::from_unix_epoch_duration(Duration::from_millis(millis))
     }
@@ -54,5 +46,37 @@ impl UTC {
         UTC {
             time_since_unix_epoch: duration,
         }
+    }
+}
+
+impl ByteSize for UTC {
+    const BYTE_SIZE: usize = 8;
+    const TYPE_CODE: TypeCode = TypeCode::Extension(18);
+}
+
+impl<T> FromBytes<T> for UTC
+where
+    T: AsArraySelf<8>,
+{
+    fn from_bytes_le(bytes: T) -> Self {
+        UTC::from_unix_epoch_millis(<u64>::from_le_bytes(bytes.as_array_self()))
+    }
+    fn from_bytes_be(bytes: T) -> Self {
+        UTC::from_unix_epoch_millis(<u64>::from_be_bytes(bytes.as_array_self()))
+    }
+    fn from_bytes_ne(bytes: T) -> Self {
+        UTC::from_unix_epoch_millis(<u64>::from_ne_bytes(bytes.as_array_self()))
+    }
+}
+
+impl ToBytes<[u8; 8]> for UTC {
+    fn to_bytes_le(&self) -> [u8; 8] {
+        self.to_unix_epoch_millis().to_le_bytes()
+    }
+    fn to_bytes_be(&self) -> [u8; 8] {
+        self.to_unix_epoch_millis().to_be_bytes()
+    }
+    fn to_bytes_ne(&self) -> [u8; 8] {
+        self.to_unix_epoch_millis().to_ne_bytes()
     }
 }

@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     io::Read,
 };
-use steadfast_parsing::{StrParser, prelude::*};
+use steadfast_parsing::{prelude::*, StrParser};
 use steadfast_serializer::{DataHolder, Deserialize, PrimType, Serialize};
 // See rfc4627, rfc8259
 #[derive(Debug, PartialEq)]

@@ -126,30 +126,6 @@ pub trait TryWriteBytes {
     fn try_write_bytes_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr>;
 }
 
-// impl<T: TryWriteBytes> TryWriteBytes for Vec<T> {
-//     fn try_write_bytes_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
-//         self.len().try_write_bytes_le(stream)?;
-//         for entry in self {
-//             entry.try_write_bytes_le(stream)?;
-//         }
-//         Ok(())
-//     }
-//     fn try_write_bytes_be<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
-//         self.len().try_write_bytes_be(stream)?;
-//         for entry in self {
-//             entry.try_write_bytes_be(stream)?;
-//         }
-//         Ok(())
-//     }
-//     fn try_write_bytes_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
-//         self.len().try_write_bytes_ne(stream)?;
-//         for entry in self {
-//             entry.try_write_bytes_ne(stream)?;
-//         }
-//         Ok(())
-//     }
-// }
-
 impl<T: TryWriteBytes> TypeCoded for Vec<T> {
     const TYPE_CODE: TypeCode = TypeCode::DynSize;
 }

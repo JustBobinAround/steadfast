@@ -222,6 +222,11 @@ fn parse_deserialize_struct(mut parser: TokenParser, is_public: bool) -> TokenSt
     output.parse().unwrap()
 }
 
+#[proc_macro_derive(ReadByteStream)]
+pub fn derive_read_byte_stream(items: TokenStream) -> TokenStream {
+    todo!()
+}
+
 #[proc_macro_derive(Deserialize)]
 pub fn derive_deserialize(items: TokenStream) -> TokenStream {
     let mut parser = TokenParser::new(items);

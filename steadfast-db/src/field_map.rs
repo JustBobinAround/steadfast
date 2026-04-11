@@ -6,6 +6,7 @@ use std::{
     marker::PhantomData,
     path::Path,
 };
+use steadfast_bytes::FromBytes;
 use steadfast_crypt::SHA256;
 
 pub struct FieldKey(SHA256);
@@ -53,7 +54,7 @@ impl<'a, const PAGE_SIZE: usize> FieldMap<'a, PAGE_SIZE> {
         }
         let mem_addr = <u64>::from_le_bytes(mem_addr_buf);
         let sha256_buf = self.read_exact::<32>()?;
-        BytesLE::from_bytes::<_, SHA256>(sha256_buf);
+        <SHA256>::from_bytes_le(sha256_buf);
         todo!()
     }
 

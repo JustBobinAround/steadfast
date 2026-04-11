@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::{File, OpenOptions},
-    io::{Read, Seek, SeekFrom, Write},
+    io::{Cursor, Read, Seek, SeekFrom, Write},
     path::Path,
 };
 use steadfast_bytes::{ByteSize, FromBytes, ToBytes};
@@ -99,7 +99,7 @@ impl<const PAGE_SIZE: usize> PageBuffer<PAGE_SIZE> for Leaf<PAGE_SIZE> {
         let next_leaf_addr_buf = page_buf[<u64>::BYTE_SIZE..RESERVED_PAGE_BYTES]
             .first_chunk::<8>()
             .expect("Failed to pull next_leaf_addr_buf from page_buf.");
-        let next_leaf_addr = match BytesLE::from_bytes(*next_leaf_addr_buf) {
+        let next_leaf_addr = match <u64>::from_bytes_le(*next_leaf_addr_buf) {
             i if i > 0 => Some(PageAddr::new(i)),
             _ => None,
         };
@@ -119,7 +119,7 @@ impl<const PAGE_SIZE: usize> PageBuffer<PAGE_SIZE> for Leaf<PAGE_SIZE> {
                     let uuid_buf = chunk
                         .first_chunk::<{ UUID::BYTE_SIZE }>()
                         .expect("Failed to pull UUID chunk from entry_buf");
-                    entries.push(BytesLE::from_bytes(*uuid_buf));
+                    entries.push(<UUID>::from_bytes_le(*uuid_buf));
                     entries
                 },
             );
@@ -167,7 +167,7 @@ impl<const PAGE_SIZE: usize> PageBuffer<PAGE_SIZE> for Branch<PAGE_SIZE> {
         let last_page_buf = page_buf[<u64>::BYTE_SIZE..RESERVED_PAGE_BYTES]
             .first_chunk::<8>()
             .expect("Failed to pull last_page_buf from page_buf.");
-        let last_page = PageAddr::new(BytesLE::from_bytes(*last_page_buf));
+        let last_page = PageAddr::new(<u64>::from_bytes_le(*last_page_buf));
         assert!(
             last_page.0 > 0,
             "A page branch must always have a last_page."
@@ -191,8 +191,8 @@ impl<const PAGE_SIZE: usize> PageBuffer<PAGE_SIZE> for Branch<PAGE_SIZE> {
                         .first_chunk::<{ <u64>::BYTE_SIZE }>()
                         .expect("Failed to pull addr_buf chunk from entry_buf");
                     entries.push((
-                        BytesLE::from_bytes(*uuid_buf),
-                        PageAddr::new(BytesLE::from_bytes(*addr_buf)),
+                        <UUID>::from_bytes_le(*uuid_buf),
+                        PageAddr::new(<u64>::from_bytes_le(*addr_buf)),
                     ));
                     entries
                 },

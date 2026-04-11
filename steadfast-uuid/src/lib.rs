@@ -1,5 +1,7 @@
 use std::{cmp::Ordering, str::FromStr};
-use steadfast_bytes::{AsArraySelf, ByteSize, FromBytes, ToBytes, TypeCode};
+use steadfast_bytes::{
+    AsArraySelf, ByteSize, BytesErr, FromBytes, ToBytes, TryReadBytes, TypeCode, TypeCoded,
+};
 use steadfast_rand::Random;
 
 #[repr(transparent)]
@@ -206,7 +208,20 @@ mod tests {
 
 impl ByteSize for UUID {
     const BYTE_SIZE: usize = 16;
+}
+impl TypeCoded for UUID {
     const TYPE_CODE: TypeCode = TypeCode::Extension(17);
+}
+impl TryReadBytes for UUID {
+    fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        Ok(Self::from_u128(<u128>::try_read_bytes_le(stream)?))
+    }
+    fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        Ok(Self::from_u128(<u128>::try_read_bytes_be(stream)?))
+    }
+    fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        Ok(Self::from_u128(<u128>::try_read_bytes_ne(stream)?))
+    }
 }
 
 impl<T> FromBytes<T> for UUID

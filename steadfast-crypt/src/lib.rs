@@ -1,4 +1,6 @@
-use steadfast_bytes::{AsArraySelf, ByteSize, FromBytes, ToBytes, TypeCode};
+use steadfast_bytes::{
+    AsArraySelf, ByteSize, BytesErr, FromBytes, ToBytes, TryReadBytes, TypeCode, TypeCoded,
+};
 /// See "Secure Hash Standard" in FIPS PUB 180-4 on [NIST](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SHA256([u32; 8]);
@@ -199,7 +201,34 @@ impl SHA256 {
 
 impl ByteSize for SHA256 {
     const BYTE_SIZE: usize = 32;
+}
+
+impl TypeCoded for SHA256 {
     const TYPE_CODE: TypeCode = TypeCode::Extension(19);
+}
+
+impl TryReadBytes for SHA256 {
+    fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        let mut buf = [0u32; 8];
+        for i in buf.iter_mut() {
+            *i = <u32>::try_read_bytes_le(stream)?;
+        }
+        Ok(Self::from_raw(buf))
+    }
+    fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        let mut buf = [0u32; 8];
+        for i in buf.iter_mut() {
+            *i = <u32>::try_read_bytes_be(stream)?;
+        }
+        Ok(Self::from_raw(buf))
+    }
+    fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        let mut buf = [0u32; 8];
+        for i in buf.iter_mut() {
+            *i = <u32>::try_read_bytes_ne(stream)?;
+        }
+        Ok(Self::from_raw(buf))
+    }
 }
 
 impl<T> FromBytes<T> for SHA256

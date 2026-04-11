@@ -1,7 +1,9 @@
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::time::Duration;
-use steadfast_bytes::{AsArraySelf, ByteSize, FromBytes, ToBytes, TypeCode};
+use steadfast_bytes::{
+    AsArraySelf, ByteSize, BytesErr, FromBytes, ToBytes, TryReadBytes, TypeCode, TypeCoded,
+};
 pub enum TimeErrSF {
     FailedToFetch,
 }
@@ -51,7 +53,27 @@ impl UTC {
 
 impl ByteSize for UTC {
     const BYTE_SIZE: usize = 8;
+}
+impl TypeCoded for UTC {
     const TYPE_CODE: TypeCode = TypeCode::Extension(18);
+}
+
+impl TryReadBytes for UTC {
+    fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        Ok(UTC::from_unix_epoch_millis(<u64>::try_read_bytes_le(
+            stream,
+        )?))
+    }
+    fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        Ok(UTC::from_unix_epoch_millis(<u64>::try_read_bytes_be(
+            stream,
+        )?))
+    }
+    fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        Ok(UTC::from_unix_epoch_millis(<u64>::try_read_bytes_ne(
+            stream,
+        )?))
+    }
 }
 
 impl<T> FromBytes<T> for UTC

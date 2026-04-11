@@ -1,3 +1,9 @@
+use std::{
+    cmp::Ord,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    hash::Hash,
+};
+#[derive(Debug)]
 pub enum BytesErr {
     NotEnoughBytes { need: usize, found: usize },
     IoError(std::io::Error),
@@ -99,6 +105,29 @@ impl TypeCode {
             num => Self::Extension(num),
         }
     }
+
+    pub const fn type_size(&self) -> Option<usize> {
+        match self {
+            Self::None => Some(0),
+            Self::U8 => Some(1),
+            Self::U16 => Some(2),
+            Self::U32 => Some(4),
+            Self::U64 => Some(8),
+            Self::U128 => Some(16),
+            Self::I8 => Some(1),
+            Self::I16 => Some(2),
+            Self::I32 => Some(4),
+            Self::I64 => Some(8),
+            Self::I128 => Some(16),
+            Self::F32 => Some(4),
+            Self::F64 => Some(8),
+            Self::CHAR => Some(1),
+            Self::USIZE => Some(8),
+            Self::ISIZE => Some(8),
+            Self::BOOL => Some(1),
+            _ => None,
+        }
+    }
 }
 
 pub trait FromBytes<T>: Sized {
@@ -107,10 +136,10 @@ pub trait FromBytes<T>: Sized {
     fn from_bytes_ne(bytes: T) -> Self;
 }
 
-pub trait TryFromBytes<T: AsArrayRef>: Sized {
-    fn try_from_bytes_le(bytes: T) -> Result<Self, BytesErr>;
-    fn try_from_bytes_be(bytes: T) -> Result<Self, BytesErr>;
-    fn try_from_bytes_ne(bytes: T) -> Result<Self, BytesErr>;
+pub trait TryReadBytes: Sized {
+    fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr>;
+    fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr>;
+    fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr>;
 }
 
 pub trait ToBytes<T> {
@@ -119,6 +148,11 @@ pub trait ToBytes<T> {
     fn to_bytes_ne(&self) -> T;
 }
 
+pub trait TryWriteBytes {
+    fn try_write_bytes_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr>;
+    fn try_write_bytes_be<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr>;
+    fn try_write_bytes_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr>;
+}
 pub trait ByteSize: Sized {
     const BYTE_SIZE: usize;
     const TYPE_CODE: TypeCode;
@@ -188,36 +222,21 @@ macro_rules! impl_byte_size {
             }
         }
 
-        impl<T> TryFromBytes<T> for $ty
-        where
-            T: AsArrayRef,
-        {
-            fn try_from_bytes_le(bytes: T) -> Result<Self, BytesErr> {
-                match bytes.as_array_ref().first_chunk::<$size>() {
-                    Some(bytes) => Ok(<$ty>::from_le_bytes(*bytes)),
-                    None => Err(BytesErr::NotEnoughBytes {
-                        need: $size,
-                        found: bytes.as_array_len(),
-                    }),
-                }
+        impl TryReadBytes for $ty {
+            fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+                let mut buf = [0u8; $size];
+                stream.read_exact(&mut buf)?;
+                Ok(<$ty>::from_le_bytes(buf))
             }
-            fn try_from_bytes_be(bytes: T) -> Result<Self, BytesErr> {
-                match bytes.as_array_ref().first_chunk::<$size>() {
-                    Some(bytes) => Ok(<$ty>::from_be_bytes(*bytes)),
-                    None => Err(BytesErr::NotEnoughBytes {
-                        need: $size,
-                        found: bytes.as_array_len(),
-                    }),
-                }
+            fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+                let mut buf = [0u8; $size];
+                stream.read_exact(&mut buf)?;
+                Ok(<$ty>::from_be_bytes(buf))
             }
-            fn try_from_bytes_ne(bytes: T) -> Result<Self, BytesErr> {
-                match bytes.as_array_ref().first_chunk::<$size>() {
-                    Some(bytes) => Ok(<$ty>::from_ne_bytes(*bytes)),
-                    None => Err(BytesErr::NotEnoughBytes {
-                        need: $size,
-                        found: bytes.as_array_len(),
-                    }),
-                }
+            fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+                let mut buf = [0u8; $size];
+                stream.read_exact(&mut buf)?;
+                Ok(<$ty>::from_ne_bytes(buf))
             }
         }
 
@@ -230,6 +249,29 @@ macro_rules! impl_byte_size {
             }
             fn to_bytes_ne(&self) -> [u8; $size] {
                 self.to_ne_bytes()
+            }
+        }
+        impl TryWriteBytes for $ty {
+            fn try_write_bytes_le<W: std::io::Write>(
+                &self,
+                stream: &mut W,
+            ) -> Result<(), BytesErr> {
+                stream.write(&self.to_le_bytes())?;
+                Ok(())
+            }
+            fn try_write_bytes_be<W: std::io::Write>(
+                &self,
+                stream: &mut W,
+            ) -> Result<(), BytesErr> {
+                stream.write(&self.to_be_bytes())?;
+                Ok(())
+            }
+            fn try_write_bytes_ne<W: std::io::Write>(
+                &self,
+                stream: &mut W,
+            ) -> Result<(), BytesErr> {
+                stream.write(&self.to_ne_bytes())?;
+                Ok(())
             }
         }
     };
@@ -263,6 +305,57 @@ macro_rules! impl_byte_size {
             }
             fn to_bytes_ne(&self) -> [u8; $size] {
                 (*self as $override).to_ne_bytes()
+            }
+        }
+        impl ToBytes<Vec<u8>> for $ty {
+            fn to_bytes_le(&self) -> Vec<u8> {
+                (*self as $override).to_le_bytes().to_vec()
+            }
+            fn to_bytes_be(&self) -> Vec<u8> {
+                (*self as $override).to_be_bytes().to_vec()
+            }
+            fn to_bytes_ne(&self) -> Vec<u8> {
+                (*self as $override).to_ne_bytes().to_vec()
+            }
+        }
+        impl TryWriteBytes for $ty {
+            fn try_write_bytes_le<W: std::io::Write>(
+                &self,
+                stream: &mut W,
+            ) -> Result<(), BytesErr> {
+                stream.write(&(*self as $override).to_le_bytes())?;
+                Ok(())
+            }
+            fn try_write_bytes_be<W: std::io::Write>(
+                &self,
+                stream: &mut W,
+            ) -> Result<(), BytesErr> {
+                stream.write(&(*self as $override).to_be_bytes())?;
+                Ok(())
+            }
+            fn try_write_bytes_ne<W: std::io::Write>(
+                &self,
+                stream: &mut W,
+            ) -> Result<(), BytesErr> {
+                stream.write(&(*self as $override).to_ne_bytes())?;
+                Ok(())
+            }
+        }
+        impl TryReadBytes for $ty {
+            fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+                let mut buf = [0u8; $size];
+                stream.read_exact(&mut buf)?;
+                Ok(<$override>::from_le_bytes(buf) as $ty)
+            }
+            fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+                let mut buf = [0u8; $size];
+                stream.read_exact(&mut buf)?;
+                Ok(<$override>::from_le_bytes(buf) as $ty)
+            }
+            fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+                let mut buf = [0u8; $size];
+                stream.read_exact(&mut buf)?;
+                Ok(<$override>::from_le_bytes(buf) as $ty)
             }
         }
     };
@@ -304,36 +397,21 @@ where
     }
 }
 
-impl<T> TryFromBytes<T> for bool
-where
-    T: AsArrayRef,
-{
-    fn try_from_bytes_le(bytes: T) -> Result<Self, BytesErr> {
-        match bytes.as_array_ref().first_chunk::<1>() {
-            Some(bytes) => Ok(<u8>::from_le_bytes(*bytes) != 0),
-            None => Err(BytesErr::NotEnoughBytes {
-                need: 1,
-                found: bytes.as_array_len(),
-            }),
-        }
+impl TryReadBytes for bool {
+    fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        let mut buf = [0u8; 1];
+        stream.read_exact(&mut buf)?;
+        Ok(buf[0] == 1)
     }
-    fn try_from_bytes_be(bytes: T) -> Result<Self, BytesErr> {
-        match bytes.as_array_ref().first_chunk::<1>() {
-            Some(bytes) => Ok(<u8>::from_be_bytes(*bytes) != 0),
-            None => Err(BytesErr::NotEnoughBytes {
-                need: 1,
-                found: bytes.as_array_len(),
-            }),
-        }
+    fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        let mut buf = [0u8; 1];
+        stream.read_exact(&mut buf)?;
+        Ok(buf[0] == 1)
     }
-    fn try_from_bytes_ne(bytes: T) -> Result<Self, BytesErr> {
-        match bytes.as_array_ref().first_chunk::<1>() {
-            Some(bytes) => Ok(<u8>::from_ne_bytes(*bytes) != 0),
-            None => Err(BytesErr::NotEnoughBytes {
-                need: 1,
-                found: bytes.as_array_len(),
-            }),
-        }
+    fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        let mut buf = [0u8; 1];
+        stream.read_exact(&mut buf)?;
+        Ok(buf[0] == 1)
     }
 }
 
@@ -349,21 +427,22 @@ impl ToBytes<[u8; 1]> for bool {
     }
 }
 
-pub trait WriteByteStreamLE<T>: Sized {
+pub trait WriteByteStreamLE: Sized {
     fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr>;
 }
-pub trait ReadByteStreamLE<T>: Sized {
+pub trait ReadByteStreamLE: Sized {
     fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr>;
 }
 
-impl<T: AsArrayRef, TT: TryFromBytes<Vec<u8>> + ToBytes<T> + ByteSize> WriteByteStreamLE<T> for TT {
+impl<TT: TryWriteBytes + ByteSize> WriteByteStreamLE for TT {
     fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
         stream.write_all(&[TT::TYPE_CODE.as_u8()])?;
-        stream.write_all(self.to_bytes_le().as_array_ref())?;
+        self.try_write_bytes_le(stream)?;
         Ok(())
     }
 }
-impl<T: AsArrayRef, TT: TryFromBytes<Vec<u8>> + ToBytes<T> + ByteSize> ReadByteStreamLE<T> for TT {
+
+impl<TT: TryReadBytes + ByteSize> ReadByteStreamLE for TT {
     fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
         let expected = Self::TYPE_CODE;
         let mut type_buf = [0u8; 1];
@@ -374,24 +453,18 @@ impl<T: AsArrayRef, TT: TryFromBytes<Vec<u8>> + ToBytes<T> + ByteSize> ReadByteS
                 found: TypeCode::from_u8(type_buf[0]),
             });
         }
-        let mut num_buf = Vec::with_capacity(Self::BYTE_SIZE);
-        stream.read_exact(&mut num_buf)?;
-        Ok(TT::try_from_bytes_le(num_buf)?)
+        Ok(<TT>::try_read_bytes_le(stream)?)
     }
 }
-impl<T: AsArrayRef, TT: TryFromBytes<Vec<u8>> + ToBytes<T> + ByteSize> WriteByteStreamLE<T>
-    for std::sync::Arc<TT>
-{
+impl<TT: TryWriteBytes + ByteSize> WriteByteStreamLE for std::sync::Arc<TT> {
     fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
         stream.write_all(&[TT::TYPE_CODE.as_u8()])?;
-        stream.write_all(self.to_bytes_le().as_array_ref())?;
+        self.try_write_bytes_le(stream)?;
         Ok(())
     }
 }
 
-impl<T: AsArrayRef, TT: TryFromBytes<Vec<u8>> + ToBytes<T> + ByteSize> ReadByteStreamLE<T>
-    for std::sync::Arc<TT>
-{
+impl<TT: TryReadBytes + ByteSize> ReadByteStreamLE for std::sync::Arc<TT> {
     fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
         let expected = TT::TYPE_CODE;
         let mut type_buf = [0u8; 1];
@@ -402,157 +475,138 @@ impl<T: AsArrayRef, TT: TryFromBytes<Vec<u8>> + ToBytes<T> + ByteSize> ReadByteS
                 found: TypeCode::from_u8(type_buf[0]),
             });
         }
-        let mut num_buf = Vec::with_capacity(TT::BYTE_SIZE);
-        stream.read_exact(&mut num_buf)?;
-        Ok(std::sync::Arc::new(TT::try_from_bytes_le(num_buf)?))
+        Ok(std::sync::Arc::new(<TT>::try_read_bytes_le(stream)?))
     }
 }
 
-impl<T: AsArrayRef, TT: TryFromBytes<Vec<u8>> + ToBytes<T> + ByteSize> WriteByteStreamLE<T>
-    for std::rc::Rc<TT>
-{
+impl<TT: TryWriteBytes + ByteSize> WriteByteStreamLE for std::rc::Rc<TT> {
     fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
-        stream.write_all(&[TT::TYPE_CODE.as_u8()])?;
-        stream.write_all(self.to_bytes_le().as_array_ref())?;
+        TT::TYPE_CODE.as_u8().try_write_bytes_le(stream)?;
+        self.try_write_bytes_le(stream)?;
         Ok(())
     }
 }
-impl<T: AsArrayRef, TT: TryFromBytes<Vec<u8>> + ToBytes<T> + ByteSize> ReadByteStreamLE<T>
-    for std::rc::Rc<TT>
-{
+
+impl<TT: TryReadBytes + ByteSize> ReadByteStreamLE for std::rc::Rc<TT> {
     fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
         let expected = TT::TYPE_CODE;
-        let mut type_buf = [0u8; 1];
-        stream.read_exact(&mut type_buf)?;
-        if type_buf[0] != expected.as_u8() {
-            return Err(BytesErr::UnexpectedTypeCode {
-                expected,
-                found: TypeCode::from_u8(type_buf[0]),
-            });
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+        if found != expected {
+            return Err(BytesErr::UnexpectedTypeCode { expected, found });
         }
-        let mut num_buf = Vec::with_capacity(TT::BYTE_SIZE);
-        stream.read_exact(&mut num_buf)?;
-        Ok(std::rc::Rc::new(TT::try_from_bytes_le(num_buf)?))
+        Ok(std::rc::Rc::new(<TT>::try_read_bytes_le(stream)?))
     }
 }
 
-impl<T: AsArrayRef, TT: WriteByteStreamLE<T>> WriteByteStreamLE<T> for Option<TT> {
+impl<TT: WriteByteStreamLE> WriteByteStreamLE for Option<TT> {
     fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
         match self {
             Some(t) => {
-                stream.write_all(&[TypeCode::Some.as_u8()])?;
+                TypeCode::Some.as_u8().try_write_bytes_le(stream)?;
                 t.write_byte_stream_le(stream)?;
             }
             None => {
-                stream.write_all(&[TypeCode::None.as_u8()])?;
+                TypeCode::None.as_u8().try_write_bytes_le(stream)?;
             }
         }
         Ok(())
     }
 }
-impl<T: AsArrayRef, TT: ReadByteStreamLE<T>> ReadByteStreamLE<T> for Option<TT> {
+impl<TT: ReadByteStreamLE> ReadByteStreamLE for Option<TT> {
     fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let mut type_buf = [0u8; 1];
-        stream.read_exact(&mut type_buf)?;
-        match TypeCode::from_u8(type_buf[0]) {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+        match found {
             TypeCode::None => Ok(None),
             TypeCode::Some => Ok(Some(TT::read_byte_stream_le(stream)?)),
             _ => Err(BytesErr::UnexpectedTypeCode {
                 expected: TypeCode::Some,
-                found: TypeCode::from_u8(type_buf[0]),
+                found,
             }),
         }
     }
 }
-impl<T: AsArrayRef, TT: WriteByteStreamLE<T>, TTT: WriteByteStreamLE<T>> WriteByteStreamLE<T>
-    for Result<TT, TTT>
-{
+impl<TT: WriteByteStreamLE, TTT: WriteByteStreamLE> WriteByteStreamLE for Result<TT, TTT> {
     fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
         match self {
             Ok(a) => {
-                stream.write(&[TypeCode::ResultOk.as_u8()])?;
+                TypeCode::ResultOk.as_u8().try_write_bytes_le(stream)?;
                 a.write_byte_stream_le(stream)
             }
             Err(b) => {
-                stream.write(&[TypeCode::ResultErr.as_u8()])?;
+                TypeCode::ResultErr.as_u8().try_write_bytes_le(stream)?;
                 b.write_byte_stream_le(stream)
             }
         }
     }
 }
 
-impl<T: AsArrayRef, TT: ReadByteStreamLE<T>, TTT: ReadByteStreamLE<T>> ReadByteStreamLE<T>
-    for Result<TT, TTT>
-{
+impl<TT: ReadByteStreamLE, TTT: ReadByteStreamLE> ReadByteStreamLE for Result<TT, TTT> {
     fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let mut type_buf = [0u8; 1];
-        stream.read_exact(&mut type_buf)?;
-        match TypeCode::from_u8(type_buf[0]) {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+        match found {
             TypeCode::ResultOk => Ok(Ok(TT::read_byte_stream_le(stream)?)),
             TypeCode::ResultErr => Ok(Err(TTT::read_byte_stream_le(stream)?)),
             _ => Err(BytesErr::UnexpectedTypeCode {
                 expected: TypeCode::ResultErr,
-                found: TypeCode::from_u8(type_buf[0]),
+                found,
             }),
         }
     }
 }
 
-impl<'a, T: AsArrayRef, TT: ToBytes<T> + ByteSize> WriteByteStreamLE<T> for &[TT] {
+impl<'a, TT: WriteByteStreamLE> WriteByteStreamLE for &[TT] {
     fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
-        stream.write(&[TypeCode::DynSize.as_u8(), TT::TYPE_CODE.as_u8()])?;
-        stream.write(&self.len().to_bytes_le())?;
+        TypeCode::DynSize.as_u8().try_write_bytes_le(stream)?;
+        self.len().try_write_bytes_le(stream)?;
         for chunk in *self {
-            stream.write(chunk.to_bytes_le().as_array_ref())?;
+            chunk.write_byte_stream_le(stream)?;
         }
         Ok(())
     }
 }
 
-impl<'a, T: AsArrayRef, TT: ToBytes<T> + ByteSize> WriteByteStreamLE<T> for Vec<TT> {
+impl<'a, TT: WriteByteStreamLE> WriteByteStreamLE for Vec<TT> {
     fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
-        stream.write(&[TypeCode::DynSize.as_u8(), TT::TYPE_CODE.as_u8()])?;
-        stream.write(&self.len().to_bytes_le())?;
+        TypeCode::DynSize.as_u8().try_write_bytes_le(stream)?;
+        self.len().try_write_bytes_le(stream)?;
         for chunk in self {
-            stream.write(chunk.to_bytes_le().as_array_ref())?;
+            chunk.write_byte_stream_le(stream)?;
         }
         Ok(())
     }
 }
 
-impl<'a, T: AsArrayRef, TT: TryFromBytes<Vec<u8>> + ByteSize> ReadByteStreamLE<T> for Vec<TT> {
+impl<'a, TT: ReadByteStreamLE> ReadByteStreamLE for Vec<TT> {
     fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let mut type_buf = [0u8; 2];
-        stream.read_exact(&mut type_buf)?;
-        let init_ty = TypeCode::from_u8(type_buf[0]);
-        match init_ty {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+        match found {
             TypeCode::DynSize => {
-                if TypeCode::from_u8(type_buf[1]) == TT::TYPE_CODE {
-                    let mut capacity_buf = [0u8; 8];
-                    stream.read_exact(&mut capacity_buf)?;
-                    let capacity = <u64>::from_le_bytes(capacity_buf);
-                    let mut entries = Vec::with_capacity(capacity as usize);
-                    for _ in 0..capacity {
-                        let mut buf = vec![0u8; TT::BYTE_SIZE];
-                        stream.read(buf.as_mut_slice())?;
-                        entries.push(<TT>::try_from_bytes_le(buf)?);
-                    }
-                    Ok(entries)
-                } else {
-                    Err(BytesErr::UnexpectedTypeCode {
-                        expected: TT::TYPE_CODE,
-                        found: init_ty,
-                    })
+                let len = <usize>::try_read_bytes_le(stream)?;
+                let mut entries = Vec::with_capacity(len);
+                for _ in 0..len {
+                    entries.push(<TT>::read_byte_stream_le(stream)?);
                 }
+
+                Ok(entries)
             }
             _ => Err(BytesErr::UnexpectedTypeCode {
                 expected: TypeCode::DynSize,
-                found: init_ty,
+                found,
             }),
         }
     }
 }
-impl<'a, T: AsArrayRef> ReadByteStreamLE<T> for String {
+
+impl<'a> WriteByteStreamLE for String {
+    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+        stream.write(&[TypeCode::DynSize.as_u8(), TypeCode::CHAR.as_u8()])?;
+        self.len().try_write_bytes_le(stream)?;
+        stream.write(self.as_bytes())?;
+        Ok(())
+    }
+}
+
+impl<'a> ReadByteStreamLE for String {
     fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
         let mut type_buf = [0u8; 2];
         stream.read_exact(&mut type_buf)?;
@@ -564,7 +618,7 @@ impl<'a, T: AsArrayRef> ReadByteStreamLE<T> for String {
                     stream.read_exact(&mut capacity_buf)?;
                     let capacity = <u64>::from_le_bytes(capacity_buf);
                     let mut entries = vec![0u8; capacity as usize];
-                    stream.read(entries.as_mut_slice())?; //TODO: this is not correct
+                    stream.read_exact(entries.as_mut_slice())?;
                     Ok(String::from_utf8(entries)?)
                 } else {
                     Err(BytesErr::UnexpectedTypeCode {
@@ -581,171 +635,146 @@ impl<'a, T: AsArrayRef> ReadByteStreamLE<T> for String {
     }
 }
 
-// impl<'a, T: AsArrayRef> ByteStreamLE<T> for String {
-//     fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
-//         stream.write(&[DYN_SIZE_CODE, 1])?;
-//         stream.write(&self.len().to_bytes_le())?;
-//         stream.write(self.as_bytes())?;
-//         Ok(())
-//     }
-//     fn read_byte_stream_le<R: std::io::Read>(&self, stream: &mut R) -> Result<Self, BytesErr> {
-//         todo!()
-//     }
-// }
+impl<'a, A: WriteByteStreamLE, B: WriteByteStreamLE> WriteByteStreamLE for HashMap<A, B> {
+    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+        TypeCode::DynSize.as_u8().try_write_bytes_le(stream)?;
+        self.len().try_write_bytes_le(stream)?;
+        for (a, b) in self {
+            a.write_byte_stream_le(stream)?;
+            b.write_byte_stream_le(stream)?;
+        }
+        Ok(())
+    }
+}
 
-// pub trait FromByteBuf<const N: usize>: FromBytes<[u8; N]> {
-//     fn from_first_sf_le_chunk(bytes: &[u8]) -> Result<Self, BytesErr> {
-//         match bytes.first_chunk::<N>() {
-//             Some(chunk) => Ok(<Self>::from_sf_le_bytes(*chunk)),
-//             None => Err(BytesErr::NotEnoughBytes {
-//                 need: N,
-//                 found: bytes.len(),
-//             }),
-//         }
-//     }
-//     fn from_first_sf_be_chunk(bytes: &[u8]) -> Result<Self, BytesErr> {
-//         match bytes.first_chunk::<N>() {
-//             Some(chunk) => Ok(<Self>::from_sf_be_bytes(*chunk)),
-//             None => Err(BytesErr::NotEnoughBytes {
-//                 need: N,
-//                 found: bytes.len(),
-//             }),
-//         }
-//     }
-//     fn from_first_sf_ne_chunk(bytes: &[u8]) -> Result<Self, BytesErr> {
-//         match bytes.first_chunk::<N>() {
-//             Some(chunk) => Ok(<Self>::from_sf_ne_bytes(*chunk)),
-//             None => Err(BytesErr::NotEnoughBytes {
-//                 need: N,
-//                 found: bytes.len(),
-//             }),
-//         }
-//     }
-// }
+impl<'a, A: ReadByteStreamLE + Eq + Hash, B: ReadByteStreamLE + Eq + Hash> ReadByteStreamLE
+    for HashMap<A, B>
+{
+    fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+        match found {
+            TypeCode::DynSize => {
+                let len = <usize>::try_read_bytes_le(stream)?;
+                let mut entries = HashMap::new();
+                for _ in 0..len {
+                    let a = <A>::read_byte_stream_le(stream)?;
+                    let b = <B>::read_byte_stream_le(stream)?;
+                    entries.insert(a, b);
+                }
 
-// pub trait FromByteChunkBuf {
-//     fn next_le_chunk
-// }
+                Ok(entries)
+            }
+            _ => Err(BytesErr::UnexpectedTypeCode {
+                expected: TypeCode::DynSize,
+                found,
+            }),
+        }
+    }
+}
 
-// #[repr(transparent)]
-// pub struct ByteChunk<T: ByteKind> {
-//     chunk: Box<dyn AsArrayRef>,
-//     byte_kind: PhantomData<T>,
-// }
+impl<'a, A: WriteByteStreamLE> WriteByteStreamLE for HashSet<A> {
+    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+        TypeCode::DynSize.as_u8().try_write_bytes_le(stream)?;
+        self.len().try_write_bytes_le(stream)?;
+        for a in self {
+            a.write_byte_stream_le(stream)?;
+        }
+        Ok(())
+    }
+}
 
-// impl<TT: ByteKind> ByteChunk<TT> {
-//     pub fn new<T: AsArrayRef + 'static>(chunk: T) -> Self {
-//         Self {
-//             chunk: Box::new(chunk),
-//             byte_kind: PhantomData,
-//         }
-//     }
-//     pub fn iter(&self) -> std::slice::Iter<'_, u8> {
-//         self.chunk.as_array_ref().iter()
-//     }
+impl<'a, A: ReadByteStreamLE + Eq + Hash> ReadByteStreamLE for HashSet<A> {
+    fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+        match found {
+            TypeCode::DynSize => {
+                let len = <usize>::try_read_bytes_le(stream)?;
+                let mut entries = HashSet::new();
+                for _ in 0..len {
+                    let a = <A>::read_byte_stream_le(stream)?;
+                    entries.insert(a);
+                }
 
-//     pub fn len(&self) -> usize {
-//         self.chunk.as_array_len()
-//     }
+                Ok(entries)
+            }
+            _ => Err(BytesErr::UnexpectedTypeCode {
+                expected: TypeCode::DynSize,
+                found,
+            }),
+        }
+    }
+}
 
-//     pub fn write_to_stream<W: std::io::write_byte_stream>(&self, stream: &mut W) -> Result<(), std::io::Error> {
-//         stream.write_byte_stream(&TT::to_bytes(&self.chunk.as_array_len()))?;
-//         stream.write_byte_stream(self.into())?;
-//         Ok(())
-//     }
+impl<'a, A: WriteByteStreamLE, B: WriteByteStreamLE> WriteByteStreamLE for BTreeMap<A, B> {
+    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+        TypeCode::DynSize.as_u8().try_write_bytes_le(stream)?;
+        self.len().try_write_bytes_le(stream)?;
+        for (a, b) in self {
+            a.write_byte_stream_le(stream)?;
+            b.write_byte_stream_le(stream)?;
+        }
+        Ok(())
+    }
+}
 
-//     pub fn read_from_stream<R: std::io::Read>(
-//         &self,
-//         stream: &mut R,
-//     ) -> Result<Self, std::io::Error> {
-//         let mut capacity_buf = [0u8; 8];
-//         stream.read(&mut capacity_buf)?;
-//         let capacity: usize = TT::from_bytes(capacity_buf);
-//         let mut item_buf = Vec::with_capacity(capacity);
-//         stream.read(&mut item_buf)?;
-//         // stream.write_byte_stream(&TT::to_bytes(&self.chunk.as_array_len()))?;
-//         // stream.write_byte_stream(self.into())?;
-//         Ok(Self::new(item_buf))
-//     }
-// }
+impl<'a, A: ReadByteStreamLE + Ord, B: ReadByteStreamLE + Ord> ReadByteStreamLE for BTreeMap<A, B> {
+    fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+        match found {
+            TypeCode::DynSize => {
+                let len = <usize>::try_read_bytes_le(stream)?;
+                let mut entries = BTreeMap::new();
+                for _ in 0..len {
+                    let a = <A>::read_byte_stream_le(stream)?;
+                    let b = <B>::read_byte_stream_le(stream)?;
+                    entries.insert(a, b);
+                }
 
-// impl<'a, T: ByteKind> IntoIterator for &'a ByteChunk<T> {
-//     type Item = &'a u8;
-//     type IntoIter = std::slice::Iter<'a, u8>;
+                Ok(entries)
+            }
+            _ => Err(BytesErr::UnexpectedTypeCode {
+                expected: TypeCode::DynSize,
+                found,
+            }),
+        }
+    }
+}
 
-//     fn into_iter(self) -> Self::IntoIter {
-//         self.iter()
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
 
-// impl<'a, T: ByteKind> From<&'a ByteChunk<T>> for &'a [u8] {
-//     fn from(from: &'a ByteChunk<T>) -> &'a [u8] {
-//         from.chunk.as_array_ref()
-//     }
-// }
+    use super::*;
 
-// impl<TT: ByteKind> ByteChunk<TT> {
-//     // pub fn take_chunk<const N: usize, T: FromByteBuf<N>>(&self) -> Result<T, BytesErr> {
-//     //     <T>::from_first_sf_le_chunk(self.chunk.as_array_ref())
-//     // }
-// }
+    #[test]
+    fn test_str() {
+        let s = String::from("just a test");
+        let mut stream = Cursor::new(Vec::<u8>::new());
+        s.write_byte_stream_le(&mut stream).unwrap();
+        stream.set_position(0);
+        assert_eq!(s, <String>::read_byte_stream_le(&mut stream).unwrap());
+    }
 
-// pub struct ByteChunkBuf<T: ByteKind> {
-//     inner: Vec<ByteChunk<T>>,
-// }
+    #[test]
+    fn test_u8() {
+        let mut stream = Cursor::new(Vec::<u8>::new());
+        0u8.write_byte_stream_le(&mut stream).unwrap();
+        stream.set_position(0);
+        assert_eq!(0u8, <u8>::read_byte_stream_le(&mut stream).unwrap());
+    }
 
-// impl<TT: ByteKind> ByteChunkBuf<TT> {
-//     pub fn new() -> Self {
-//         Self { inner: Vec::new() }
-//     }
+    #[test]
+    fn test_vec() {
+        let v = vec![0, 1, 1];
+        let mut stream = Cursor::new(Vec::<u8>::new());
+        v.write_byte_stream_le(&mut stream).unwrap();
+        stream.set_position(0);
+        assert_eq!(v, <Vec<i32>>::read_byte_stream_le(&mut stream).unwrap());
 
-//     pub fn push<T: AsArrayRef + 'static>(&mut self, to_push: T) {
-//         self.inner.push(ByteChunk::<TT>::new(to_push));
-//     }
-
-//     pub fn as_bytes<'a>(&'a self) -> impl Iterator<Item = &'a u8> + 'a {
-//         self.inner.iter().flat_map(|chunk| chunk.iter())
-//     }
-
-//     pub fn write_all_to_stream<W: std::io::write_byte_stream>(
-//         &self,
-//         stream: &mut W,
-//     ) -> Result<(), std::io::Error> {
-//         for chunk in self.inner.iter() {
-//             stream.write_byte_stream(&TT::to_bytes(&chunk.len()))?;
-//             stream.write_byte_stream(chunk.into())?;
-//         }
-
-//         Ok(())
-//     }
-// }
-
-// impl<T: ByteKind> IntoIterator for ByteChunkBuf<T> {
-//     type Item = ByteChunk<T>;
-//     type IntoIter = std::vec::IntoIter<Self::Item>;
-
-//     fn into_iter(self) -> Self::IntoIter {
-//         self.inner.into_iter()
-//     }
-// }
-
-// impl<'a, T: ByteKind> IntoIterator for &'a ByteChunkBuf<T> {
-//     type Item = &'a ByteChunk<T>;
-//     type IntoIter = std::slice::Iter<'a, ByteChunk<T>>;
-
-//     fn into_iter(self) -> Self::IntoIter {
-//         self.inner.iter()
-//     }
-// }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-
-//     #[test]
-//     fn test() {
-//         let t = 4u8;
-//         let bytes = t.to_sf_le_bytes();
-//         assert!(<u8>::from_sf_le_bytes(bytes) == t);
-//     }
-// }
+        let v = vec!["asdf".to_string(), "a".to_string(), "bb".to_string()];
+        let mut stream = Cursor::new(Vec::<u8>::new());
+        v.write_byte_stream_le(&mut stream).unwrap();
+        stream.set_position(0);
+        assert_eq!(v, <Vec<String>>::read_byte_stream_le(&mut stream).unwrap());
+    }
+}

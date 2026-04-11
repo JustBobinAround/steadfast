@@ -533,8 +533,8 @@ impl<'a, T: AsArrayRef, TT: TryFromBytes<Vec<u8>> + ByteSize> ReadByteStreamLE<T
                     let capacity = <u64>::from_le_bytes(capacity_buf);
                     let mut entries = Vec::with_capacity(capacity as usize);
                     for _ in 0..capacity {
-                        let mut buf = Vec::with_capacity(TT::BYTE_SIZE);
-                        stream.read(&mut buf)?; //<< TODO: this is not correct
+                        let mut buf = vec![0u8; TT::BYTE_SIZE];
+                        stream.read(buf.as_mut_slice())?;
                         entries.push(<TT>::try_from_bytes_le(buf)?);
                     }
                     Ok(entries)
@@ -563,8 +563,8 @@ impl<'a, T: AsArrayRef> ReadByteStreamLE<T> for String {
                     let mut capacity_buf = [0u8; 8];
                     stream.read_exact(&mut capacity_buf)?;
                     let capacity = <u64>::from_le_bytes(capacity_buf);
-                    let mut entries = Vec::with_capacity(capacity as usize);
-                    stream.read(&mut entries)?; //TODO: this is not correct
+                    let mut entries = vec![0u8; capacity as usize];
+                    stream.read(entries.as_mut_slice())?; //TODO: this is not correct
                     Ok(String::from_utf8(entries)?)
                 } else {
                     Err(BytesErr::UnexpectedTypeCode {

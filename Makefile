@@ -4,7 +4,9 @@ test:
 	cargo test --workspace
 
 docs:
-	cargo doc --workspace
+	cargo doc --workspace --document-private-items
 
 open-docs:
-	cargo doc --workspace --open
+	cargo doc --workspace --document-private-items --open
+
+	

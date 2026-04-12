@@ -55,7 +55,7 @@ impl<'a> std::fmt::Display for Tag<'a> {
 
 /// Internal markup struct for `html!` macro
 ///
-/// Note: html is just an alias for Vec<Tag>
+/// Note: html is just an alias for `Vec<Tag>`
 #[derive(Debug)]
 pub enum Markup<'a> {
     Text(Text<'a>),

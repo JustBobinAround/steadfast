@@ -19,6 +19,16 @@ pub enum BytesErr {
     },
 }
 
+impl BytesErr {
+    pub fn compare_checksums(expected: usize, found: usize) -> Result<(), BytesErr> {
+        if expected == found {
+            Ok(())
+        } else {
+            Err(BytesErr::ChecksumFailed { expected, found })
+        }
+    }
+}
+
 impl From<std::io::Error> for BytesErr {
     fn from(other: std::io::Error) -> Self {
         BytesErr::IoError(other)

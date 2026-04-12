@@ -219,31 +219,22 @@ impl ByteSize for UUID {
 impl TypeCoded for UUID {
     const TYPE_CODE: TypeCode = TypeCode::Extension(17);
 }
+
+macro_rules! impl_trb_uuid {
+    ($fn_name: ident) => {
+        fn $fn_name<R: std::io::Read>(
+            stream: &mut R,
+            checksum: &mut usize,
+        ) -> Result<Self, BytesErr> {
+            Ok(Self::from_u128(<u128>::$fn_name(stream, checksum)?))
+        }
+    };
+}
+
 impl TryReadBytes for UUID {
-    fn try_read_bytes_le<R: std::io::Read>(
-        stream: &mut R,
-        checksum: &mut usize,
-    ) -> Result<Self, BytesErr> {
-        Ok(Self::from_u128(<u128>::try_read_bytes_le(
-            stream, checksum,
-        )?))
-    }
-    fn try_read_bytes_be<R: std::io::Read>(
-        stream: &mut R,
-        checksum: &mut usize,
-    ) -> Result<Self, BytesErr> {
-        Ok(Self::from_u128(<u128>::try_read_bytes_be(
-            stream, checksum,
-        )?))
-    }
-    fn try_read_bytes_ne<R: std::io::Read>(
-        stream: &mut R,
-        checksum: &mut usize,
-    ) -> Result<Self, BytesErr> {
-        Ok(Self::from_u128(<u128>::try_read_bytes_ne(
-            stream, checksum,
-        )?))
-    }
+    impl_trb_uuid!(try_read_bytes_le);
+    impl_trb_uuid!(try_read_bytes_be);
+    impl_trb_uuid!(try_read_bytes_ne);
 }
 
 impl<T> FromBytes<T> for UUID

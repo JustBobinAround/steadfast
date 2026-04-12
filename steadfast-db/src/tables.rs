@@ -75,118 +75,62 @@ impl<T: STable> STable for TableRecord<T> {
     const TYPE_HASH: SHA256 = T::TYPE_HASH;
 }
 
+macro_rules! impl_rbsd_tr {
+    ($fn_name: ident) => {
+        fn $fn_name<R: std::io::Read>(
+            stream: &mut R,
+            checksum: &mut usize,
+        ) -> Result<Self, steadfast_bytes::BytesErr> {
+            let mut inner_checksum = 0;
+            let sys_uuid = <UUID>::$fn_name(stream, &mut inner_checksum)?;
+            let sys_created_on: UTC = sys_uuid.into();
+            let sys_updated_on = <UTC>::$fn_name(stream, &mut inner_checksum)?;
+            let inner_record = <T>::$fn_name(stream, &mut inner_checksum)?;
+            let record_byte_len = <usize>::$fn_name(stream, checksum)?;
+            *checksum += inner_checksum;
+            if record_byte_len == inner_checksum {
+                Ok(Self {
+                    sys_created_on,
+                    sys_updated_on,
+                    sys_uuid,
+                    inner_record,
+                })
+            } else {
+                Err(steadfast_bytes::BytesErr::ChecksumFailed {
+                    expected: inner_checksum,
+                    found: record_byte_len,
+                })
+            }
+        }
+    };
+}
+
 impl<T: STable> RBS<DynBytes> for TableRecord<T> {
-    fn read_byte_stream_le<R: std::io::Read>(
-        stream: &mut R,
-        checksum: &mut usize,
-    ) -> Result<Self, steadfast_bytes::BytesErr> {
-        let mut inner_checksum = 0;
-        let sys_uuid = <UUID>::read_byte_stream_le(stream, &mut inner_checksum)?;
-        let sys_created_on: UTC = sys_uuid.into();
-        let sys_updated_on = <UTC>::read_byte_stream_le(stream, &mut inner_checksum)?;
-        let inner_record = <T>::read_byte_stream_le(stream, &mut inner_checksum)?;
-        let record_byte_len = <usize>::read_byte_stream_le(stream, checksum)?;
-        *checksum += inner_checksum;
-        if record_byte_len == inner_checksum {
-            Ok(Self {
-                sys_created_on,
-                sys_updated_on,
-                sys_uuid,
-                inner_record,
-            })
-        } else {
-            Err(steadfast_bytes::BytesErr::ChecksumFailed {
-                expected: inner_checksum,
-                found: record_byte_len,
-            })
+    impl_rbsd_tr!(read_byte_stream_le);
+    impl_rbsd_tr!(read_byte_stream_be);
+    impl_rbsd_tr!(read_byte_stream_ne);
+}
+
+macro_rules! impl_wbsd_tr {
+    ($fn_name:ident) => {
+        fn $fn_name<W: std::io::Write>(
+            &self,
+            stream: &mut W,
+        ) -> Result<usize, steadfast_bytes::BytesErr> {
+            let record_len = TypeCode::DynSize.as_u8().$fn_name(stream)?
+                + self.sys_uuid.$fn_name(stream)?
+                + self.sys_updated_on.$fn_name(stream)?
+                + self.inner_record.$fn_name(stream)?;
+            let final_len = record_len.$fn_name(stream)? + record_len;
+            Ok(final_len)
         }
-    }
-    fn read_byte_stream_be<R: std::io::Read>(
-        stream: &mut R,
-        checksum: &mut usize,
-    ) -> Result<Self, steadfast_bytes::BytesErr> {
-        let mut inner_checksum = 0;
-        let sys_uuid = <UUID>::read_byte_stream_be(stream, &mut inner_checksum)?;
-        let sys_created_on: UTC = sys_uuid.into();
-        let sys_updated_on = <UTC>::read_byte_stream_be(stream, &mut inner_checksum)?;
-        let inner_record = <T>::read_byte_stream_be(stream, &mut inner_checksum)?;
-        let record_byte_len = <usize>::read_byte_stream_be(stream, checksum)?;
-        *checksum += inner_checksum;
-        if record_byte_len == inner_checksum {
-            Ok(Self {
-                sys_created_on,
-                sys_updated_on,
-                sys_uuid,
-                inner_record,
-            })
-        } else {
-            Err(steadfast_bytes::BytesErr::ChecksumFailed {
-                expected: inner_checksum,
-                found: record_byte_len,
-            })
-        }
-    }
-    fn read_byte_stream_ne<R: std::io::Read>(
-        stream: &mut R,
-        checksum: &mut usize,
-    ) -> Result<Self, steadfast_bytes::BytesErr> {
-        let mut inner_checksum = 0;
-        let sys_uuid = <UUID>::read_byte_stream_ne(stream, &mut inner_checksum)?;
-        let sys_created_on: UTC = sys_uuid.into();
-        let sys_updated_on = <UTC>::read_byte_stream_ne(stream, &mut inner_checksum)?;
-        let inner_record = <T>::read_byte_stream_ne(stream, &mut inner_checksum)?;
-        let record_byte_len = <usize>::read_byte_stream_ne(stream, checksum)?;
-        *checksum += inner_checksum;
-        if record_byte_len == inner_checksum {
-            Ok(Self {
-                sys_created_on,
-                sys_updated_on,
-                sys_uuid,
-                inner_record,
-            })
-        } else {
-            Err(steadfast_bytes::BytesErr::ChecksumFailed {
-                expected: inner_checksum,
-                found: record_byte_len,
-            })
-        }
-    }
+    };
 }
 
 impl<T: STable> WBS<DynBytes> for TableRecord<T> {
-    fn write_byte_stream_le<W: std::io::Write>(
-        &self,
-        stream: &mut W,
-    ) -> Result<usize, steadfast_bytes::BytesErr> {
-        let record_len = TypeCode::DynSize.as_u8().write_byte_stream_le(stream)?
-            + self.sys_uuid.write_byte_stream_le(stream)?
-            + self.sys_updated_on.write_byte_stream_le(stream)?
-            + self.inner_record.write_byte_stream_le(stream)?;
-        let final_len = record_len.write_byte_stream_le(stream)? + record_len;
-        Ok(final_len)
-    }
-    fn write_byte_stream_be<W: std::io::Write>(
-        &self,
-        stream: &mut W,
-    ) -> Result<usize, steadfast_bytes::BytesErr> {
-        let record_len = TypeCode::DynSize.as_u8().write_byte_stream_be(stream)?
-            + self.sys_uuid.write_byte_stream_be(stream)?
-            + self.sys_updated_on.write_byte_stream_be(stream)?
-            + self.inner_record.write_byte_stream_be(stream)?;
-        let final_len = record_len.write_byte_stream_be(stream)? + record_len;
-        Ok(final_len)
-    }
-    fn write_byte_stream_ne<W: std::io::Write>(
-        &self,
-        stream: &mut W,
-    ) -> Result<usize, steadfast_bytes::BytesErr> {
-        let record_len = TypeCode::DynSize.as_u8().write_byte_stream_ne(stream)?
-            + self.sys_uuid.write_byte_stream_ne(stream)?
-            + self.sys_updated_on.write_byte_stream_ne(stream)?
-            + self.inner_record.write_byte_stream_ne(stream)?;
-        let final_len = record_len.write_byte_stream_ne(stream)? + record_len;
-        Ok(final_len)
-    }
+    impl_wbsd_tr!(write_byte_stream_le);
+    impl_wbsd_tr!(write_byte_stream_be);
+    impl_wbsd_tr!(write_byte_stream_ne);
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 use steadfast_bytes::{
-    AsArraySelf, ByteSize, BytesErr, FromBytes, ToBytes, TryReadBytes, TypeCode, TypeCoded,
+    AsArraySelf, ByteSize, BytesErr, FromBytes, ToBytes, TryReadBytes, TryWriteBytes, TypeCode,
+    TypeCoded,
 };
 /// See "Secure Hash Standard" in FIPS PUB 180-4 on [NIST](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -208,14 +209,14 @@ impl TypeCoded for SHA256 {
 }
 
 macro_rules! impl_trb_sha256 {
-    ($fn_name:ident, $trb:ident) => {
+    ($fn_name:ident) => {
         fn $fn_name<R: std::io::Read>(
             stream: &mut R,
             checksum: &mut usize,
         ) -> Result<Self, BytesErr> {
             let mut buf = [0u32; 8];
             for i in buf.iter_mut() {
-                *i = <u32>::$trb(stream, checksum)?;
+                *i = <u32>::$fn_name(stream, checksum)?;
             }
             Ok(Self::from_raw(buf))
         }
@@ -223,9 +224,28 @@ macro_rules! impl_trb_sha256 {
 }
 
 impl TryReadBytes for SHA256 {
-    impl_trb_sha256!(try_read_bytes_le, try_read_bytes_le);
-    impl_trb_sha256!(try_read_bytes_be, try_read_bytes_be);
-    impl_trb_sha256!(try_read_bytes_ne, try_read_bytes_ne);
+    impl_trb_sha256!(try_read_bytes_le);
+    impl_trb_sha256!(try_read_bytes_be);
+    impl_trb_sha256!(try_read_bytes_ne);
+}
+
+macro_rules! impl_twb_sha256 {
+    ($fn_name: ident) => {
+        fn $fn_name<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
+            let mut byte_count = 0;
+            for num in self.0 {
+                byte_count += num.$fn_name(stream)?;
+            }
+
+            Ok(byte_count)
+        }
+    };
+}
+
+impl TryWriteBytes for SHA256 {
+    impl_twb_sha256!(try_write_bytes_le);
+    impl_twb_sha256!(try_write_bytes_be);
+    impl_twb_sha256!(try_write_bytes_ne);
 }
 
 macro_rules! impl_fb_sha256 {

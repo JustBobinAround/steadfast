@@ -1,6 +1,8 @@
 use core::cmp::Ordering;
 use std::marker::PhantomData;
-use steadfast_bytes::{DynBytes, ReadByteStream as RBS, TypeCode, WriteByteStream as WBS};
+use steadfast_bytes::{
+    DynBytes, ReadByteStream as RBS, TryReadBytes, TryWriteBytes, TypeCode, WriteByteStream as WBS,
+};
 use steadfast_crypt::SHA256;
 use steadfast_time::UTC;
 use steadfast_uuid::UUID;
@@ -20,11 +22,11 @@ struct TableRef<T: STable> {
     _table_ty: PhantomData<T>,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct TableRecord<T: STable> {
+    sys_uuid: UUID,
     sys_created_on: UTC,
     sys_updated_on: UTC,
-    sys_uuid: UUID,
     inner_record: T,
 }
 
@@ -41,7 +43,14 @@ impl<T: STable> TableRecord<T> {
 
     pub fn new(inner_record: T) -> Result<TableRecord<T>, ()> {
         let sys_uuid = UUID::rand_v7().map_err(|_| ())?;
-        todo!()
+        let sys_created_on: UTC = sys_uuid.into();
+        let sys_updated_on: UTC = sys_uuid.into();
+        Ok(Self {
+            sys_uuid,
+            sys_created_on,
+            sys_updated_on,
+            inner_record,
+        })
     }
 }
 
@@ -76,17 +85,30 @@ impl<T: STable> STable for TableRecord<T> {
 }
 
 macro_rules! impl_rbsd_tr {
-    ($fn_name: ident) => {
+    ($fn_name: ident, $trb: ident) => {
         fn $fn_name<R: std::io::Read>(
             stream: &mut R,
             checksum: &mut usize,
         ) -> Result<Self, steadfast_bytes::BytesErr> {
             let mut inner_checksum = 0;
-            let sys_uuid = <UUID>::$fn_name(stream, &mut inner_checksum)?;
+            TypeCode::DynSize.expect_from_stream_le(stream, &mut inner_checksum)?;
+            let sys_uuid = <UUID>::$trb(stream, &mut inner_checksum)?;
+            let table_id = <SHA256>::$trb(stream, &mut inner_checksum)?;
+            if table_id != T::TABLE_ID {
+                return Err(steadfast_bytes::BytesErr::Extension {
+                    crate_name: "steadfast-db",
+                });
+            }
+            let type_hash = <SHA256>::$trb(stream, &mut inner_checksum)?;
+            if type_hash != T::TYPE_HASH {
+                return Err(steadfast_bytes::BytesErr::Extension {
+                    crate_name: "steadfast-db",
+                });
+            }
             let sys_created_on: UTC = sys_uuid.into();
-            let sys_updated_on = <UTC>::$fn_name(stream, &mut inner_checksum)?;
+            let sys_updated_on = <UTC>::$trb(stream, &mut inner_checksum)?;
             let inner_record = <T>::$fn_name(stream, &mut inner_checksum)?;
-            let record_byte_len = <usize>::$fn_name(stream, checksum)?;
+            let record_byte_len = <usize>::$trb(stream, checksum)?;
             *checksum += inner_checksum;
             if record_byte_len == inner_checksum {
                 Ok(Self {
@@ -106,31 +128,33 @@ macro_rules! impl_rbsd_tr {
 }
 
 impl<T: STable> RBS<DynBytes> for TableRecord<T> {
-    impl_rbsd_tr!(read_byte_stream_le);
-    impl_rbsd_tr!(read_byte_stream_be);
-    impl_rbsd_tr!(read_byte_stream_ne);
+    impl_rbsd_tr!(read_byte_stream_le, try_read_bytes_le);
+    impl_rbsd_tr!(read_byte_stream_be, try_read_bytes_be);
+    impl_rbsd_tr!(read_byte_stream_ne, try_read_bytes_ne);
 }
 
 macro_rules! impl_wbsd_tr {
-    ($fn_name:ident) => {
+    ($fn_name:ident, $trb:ident) => {
         fn $fn_name<W: std::io::Write>(
             &self,
             stream: &mut W,
         ) -> Result<usize, steadfast_bytes::BytesErr> {
-            let record_len = TypeCode::DynSize.as_u8().$fn_name(stream)?
-                + self.sys_uuid.$fn_name(stream)?
-                + self.sys_updated_on.$fn_name(stream)?
-                + self.inner_record.$fn_name(stream)?;
-            let final_len = record_len.$fn_name(stream)? + record_len;
-            Ok(final_len)
+            let mut record_len = TypeCode::DynSize.as_u8().$trb(stream)?;
+            record_len += self.sys_uuid.$trb(stream)?;
+            record_len += T::TABLE_ID.$trb(stream)?;
+            record_len += T::TYPE_HASH.$trb(stream)?;
+            record_len += self.sys_updated_on.$trb(stream)?;
+            record_len += self.inner_record.$fn_name(stream)?;
+            record_len += record_len.$trb(stream)?;
+            Ok(record_len)
         }
     };
 }
 
 impl<T: STable> WBS<DynBytes> for TableRecord<T> {
-    impl_wbsd_tr!(write_byte_stream_le);
-    impl_wbsd_tr!(write_byte_stream_be);
-    impl_wbsd_tr!(write_byte_stream_ne);
+    impl_wbsd_tr!(write_byte_stream_le, try_write_bytes_le);
+    impl_wbsd_tr!(write_byte_stream_be, try_write_bytes_be);
+    impl_wbsd_tr!(write_byte_stream_ne, try_write_bytes_ne);
 }
 
 #[cfg(test)]
@@ -163,6 +187,24 @@ mod tests {
             <TestStruct>::read_byte_stream_le(&mut c, &mut checksum_b).unwrap()
         );
         assert_eq!(checksum_a, checksum_b);
-        assert_eq!(a.cmp_field(&b, "test_field"), Some(Ordering::Less))
+        assert_eq!(a.cmp_field(&b, "test_field"), Some(Ordering::Less));
+
+        let tra = TableRecord::new(a).unwrap();
+
+        let mut c = std::io::Cursor::new(Vec::new());
+        c.set_position(0);
+        let mut checksum_b = 0;
+        assert_eq!(
+            tra,
+            <TableRecord<TestStruct>>::read_byte_stream_le(&mut c, &mut checksum_b).unwrap()
+        );
+        let trb = TableRecord::new(b).unwrap();
+        assert_eq!(tra.cmp_field(&trb, "test_field"), Some(Ordering::Less));
+        // The test below will fail showing as EQ unless there is a thread sleep of at least 20s
+        // because LLVM and/or linux does some weird optimization with threads and sys time
+        // We could probably improve this by having a global instant cmp after
+        // each sys time call but that would cause more overhead. I don't really know if
+        // such a feature is worth it atm
+        // assert_eq!(tra.cmp_field(&trb, "sys_created_on"), Some(Ordering::Less));
     }
 }

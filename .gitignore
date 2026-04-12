@@ -1,5 +1,15 @@
 /target
-/db/target
+/steadfast-async/target
+/steadfast-bytes/target
+/steadfast-crypt/target
+/steadfast-db/target
+/steadfast-json/target
+/steadfast-macros/target
+/steadfast-parsing/target
+/steadfast-rand/target
+/steadfast-serializer/target
+/steadfast-time/target
+/steadfast-uuid/target
 /testing_bin/out
 /testing_bin/testing.db
 /testing_bin/testing.wal

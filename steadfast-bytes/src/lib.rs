@@ -1,10 +1,22 @@
 #[derive(Debug)]
 pub enum BytesErr {
-    NotEnoughBytes { need: usize, found: usize },
+    NotEnoughBytes {
+        need: usize,
+        found: usize,
+    },
     IoError(std::io::Error),
     FromUtf8Error(std::string::FromUtf8Error),
-    UnexpectedTypeCode { expected: TypeCode, found: TypeCode },
-    ChecksumFailed { expected: usize, found: usize },
+    UnexpectedTypeCode {
+        expected: TypeCode,
+        found: TypeCode,
+    },
+    ChecksumFailed {
+        expected: usize,
+        found: usize,
+    },
+    Extension {
+        crate_name: &'static str, //TODO: make error extension crate
+    },
 }
 
 impl From<std::io::Error> for BytesErr {

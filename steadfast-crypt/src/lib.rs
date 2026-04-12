@@ -207,118 +207,74 @@ impl TypeCoded for SHA256 {
     const TYPE_CODE: TypeCode = TypeCode::Extension(19);
 }
 
+macro_rules! impl_trb_sha256 {
+    ($fn_name:ident, $trb:ident) => {
+        fn $fn_name<R: std::io::Read>(
+            stream: &mut R,
+            checksum: &mut usize,
+        ) -> Result<Self, BytesErr> {
+            let mut buf = [0u32; 8];
+            for i in buf.iter_mut() {
+                *i = <u32>::$trb(stream, checksum)?;
+            }
+            Ok(Self::from_raw(buf))
+        }
+    };
+}
+
 impl TryReadBytes for SHA256 {
-    fn try_read_bytes_le<R: std::io::Read>(
-        stream: &mut R,
-        checksum: &mut usize,
-    ) -> Result<Self, BytesErr> {
-        let mut buf = [0u32; 8];
-        for i in buf.iter_mut() {
-            *i = <u32>::try_read_bytes_le(stream, checksum)?;
+    impl_trb_sha256!(try_read_bytes_le, try_read_bytes_le);
+    impl_trb_sha256!(try_read_bytes_be, try_read_bytes_be);
+    impl_trb_sha256!(try_read_bytes_ne, try_read_bytes_ne);
+}
+
+macro_rules! impl_fb_sha256 {
+    ($fn_name: ident, $fb: ident) => {
+        fn $fn_name(bytes: T) -> Self {
+            Self::from_raw(
+                bytes
+                    .as_array_self()
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .enumerate()
+                    .fold([0; 8], |mut num, (i, chunk)| {
+                        num[i] = <u32>::$fb(*chunk);
+                        num
+                    }),
+            )
         }
-        Ok(Self::from_raw(buf))
-    }
-    fn try_read_bytes_be<R: std::io::Read>(
-        stream: &mut R,
-        checksum: &mut usize,
-    ) -> Result<Self, BytesErr> {
-        let mut buf = [0u32; 8];
-        for i in buf.iter_mut() {
-            *i = <u32>::try_read_bytes_be(stream, checksum)?;
-        }
-        Ok(Self::from_raw(buf))
-    }
-    fn try_read_bytes_ne<R: std::io::Read>(
-        stream: &mut R,
-        checksum: &mut usize,
-    ) -> Result<Self, BytesErr> {
-        let mut buf = [0u32; 8];
-        for i in buf.iter_mut() {
-            *i = <u32>::try_read_bytes_ne(stream, checksum)?;
-        }
-        Ok(Self::from_raw(buf))
-    }
+    };
 }
 
 impl<T> FromBytes<T> for SHA256
 where
     T: AsArraySelf<32>,
 {
-    fn from_bytes_le(bytes: T) -> Self {
-        Self::from_raw(
+    impl_fb_sha256!(from_bytes_le, from_le_bytes);
+    impl_fb_sha256!(from_bytes_be, from_be_bytes);
+    impl_fb_sha256!(from_bytes_ne, from_ne_bytes);
+}
+
+macro_rules! impl_tb_sha256 {
+    ($fn_name: ident, $tb: ident) => {
+        fn $fn_name(&self) -> [u8; 32] {
+            let mut bytes = [0u8; 32];
             bytes
-                .as_array_self()
-                .as_chunks::<4>()
+                .as_chunks_mut::<4>()
                 .0
-                .iter()
-                .enumerate()
-                .fold([0; 8], |mut num, (i, chunk)| {
-                    num[i] = <u32>::from_le_bytes(*chunk);
-                    num
-                }),
-        )
-    }
-    fn from_bytes_be(bytes: T) -> Self {
-        Self::from_raw(
+                .iter_mut()
+                .zip(self.inner_bytes().iter().map(|num| num.$tb()))
+                .for_each(|(chunk, num_chunk)| chunk.copy_from_slice(&num_chunk));
             bytes
-                .as_array_self()
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .enumerate()
-                .fold([0; 8], |mut num, (i, chunk)| {
-                    num[i] = <u32>::from_be_bytes(*chunk);
-                    num
-                }),
-        )
-    }
-    fn from_bytes_ne(bytes: T) -> Self {
-        Self::from_raw(
-            bytes
-                .as_array_self()
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .enumerate()
-                .fold([0; 8], |mut num, (i, chunk)| {
-                    num[i] = <u32>::from_ne_bytes(*chunk);
-                    num
-                }),
-        )
-    }
+        }
+    };
 }
 
 impl ToBytes<[u8; 32]> for SHA256 {
-    fn to_bytes_le(&self) -> [u8; 32] {
-        let mut bytes = [0u8; 32];
-        bytes
-            .as_chunks_mut::<4>()
-            .0
-            .iter_mut()
-            .zip(self.inner_bytes().iter().map(|num| num.to_le_bytes()))
-            .for_each(|(chunk, num_chunk)| chunk.copy_from_slice(&num_chunk));
-        bytes
-    }
-    fn to_bytes_be(&self) -> [u8; 32] {
-        let mut bytes = [0u8; 32];
-        bytes
-            .as_chunks_mut::<4>()
-            .0
-            .iter_mut()
-            .zip(self.inner_bytes().iter().map(|num| num.to_be_bytes()))
-            .for_each(|(chunk, num_chunk)| chunk.copy_from_slice(&num_chunk));
-        bytes
-    }
-    fn to_bytes_ne(&self) -> [u8; 32] {
-        let mut bytes = [0u8; 32];
-        bytes
-            .as_chunks_mut::<4>()
-            .0
-            .iter_mut()
-            .zip(self.inner_bytes().iter().map(|num| num.to_ne_bytes()))
-            .for_each(|(chunk, num_chunk)| chunk.copy_from_slice(&num_chunk));
-        bytes
-    }
+    impl_tb_sha256!(to_bytes_le, to_le_bytes);
+    impl_tb_sha256!(to_bytes_be, to_be_bytes);
+    impl_tb_sha256!(to_bytes_ne, to_ne_bytes);
 }
 #[cfg(test)]
 mod tests {

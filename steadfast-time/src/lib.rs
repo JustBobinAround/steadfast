@@ -59,42 +59,35 @@ impl TypeCoded for UTC {
     const TYPE_CODE: TypeCode = TypeCode::Extension(18);
 }
 
-impl TryReadBytes for UTC {
-    fn try_read_bytes_le<R: std::io::Read>(
-        stream: &mut R,
-        checksum: &mut usize,
-    ) -> Result<Self, BytesErr> {
-        Ok(UTC::from_unix_epoch_millis(<u64>::try_read_bytes_le(
-            stream, checksum,
-        )?))
-    }
-    fn try_read_bytes_be<R: std::io::Read>(
-        stream: &mut R,
-        checksum: &mut usize,
-    ) -> Result<Self, BytesErr> {
-        Ok(UTC::from_unix_epoch_millis(<u64>::try_read_bytes_be(
-            stream, checksum,
-        )?))
-    }
-    fn try_read_bytes_ne<R: std::io::Read>(
-        stream: &mut R,
-        checksum: &mut usize,
-    ) -> Result<Self, BytesErr> {
-        Ok(UTC::from_unix_epoch_millis(<u64>::try_read_bytes_ne(
-            stream, checksum,
-        )?))
-    }
+macro_rules! impl_trb_utc {
+    ($fn_name: ident, $trb: ident) => {
+        fn $fn_name<R: std::io::Read>(
+            stream: &mut R,
+            checksum: &mut usize,
+        ) -> Result<Self, BytesErr> {
+            Ok(UTC::from_unix_epoch_millis(<u64>::$trb(stream, checksum)?))
+        }
+    };
 }
+
+impl TryReadBytes for UTC {
+    impl_trb_utc!(try_read_bytes_le, try_read_bytes_le);
+    impl_trb_utc!(try_read_bytes_be, try_read_bytes_be);
+    impl_trb_utc!(try_read_bytes_ne, try_read_bytes_ne);
+}
+
+macro_rules! impl_twb_utc {
+    ($fn_name: ident, $twb: ident) => {
+        fn $fn_name<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
+            Ok(stream.write(&self.to_unix_epoch_millis().$twb())?)
+        }
+    };
+}
+
 impl TryWriteBytes for UTC {
-    fn try_write_bytes_le<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
-        Ok(stream.write(&self.to_unix_epoch_millis().to_le_bytes())?)
-    }
-    fn try_write_bytes_be<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
-        Ok(stream.write(&self.to_unix_epoch_millis().to_be_bytes())?)
-    }
-    fn try_write_bytes_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
-        Ok(stream.write(&self.to_unix_epoch_millis().to_ne_bytes())?)
-    }
+    impl_twb_utc!(try_write_bytes_le, to_le_bytes);
+    impl_twb_utc!(try_write_bytes_be, to_be_bytes);
+    impl_twb_utc!(try_write_bytes_ne, to_ne_bytes);
 }
 
 impl<T> FromBytes<T> for UTC

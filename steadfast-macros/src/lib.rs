@@ -175,6 +175,168 @@ pub fn html(item: TokenStream) -> TokenStream {
 
     s.parse().unwrap()
 }
+fn parse_wbs_struct(mut parser: TokenParser, is_public: bool, internal: bool) -> TokenStream {
+    let data_struct = parser.consume_struct(is_public).expect("a valid struct");
+
+    let struct_name = data_struct.name();
+    // let generic_idents = data_struct.generic_idents();
+    // let generic_traits = data_struct.generic_traits();
+    // if generics.len() > 0 {
+    //     // TODO: add generic support
+    //     unimplemented!("deriving deserialize with generics is not currently supported");
+    // }
+    let (fields_le, fields_be, fields_ne): (String, String, String) = data_struct
+        .fields()
+        .iter()
+        .map(|(name, _field_data)| {
+            (
+                format!("+self.{}.write_byte_stream_le(stream)?", name),
+                format!("+self.{}.write_byte_stream_be(stream)?", name),
+                format!("+self.{}.write_byte_stream_ne(stream)?", name),
+            )
+        })
+        .collect();
+
+    let crate_bounds = if internal {
+        "::steadfast_bytes"
+    } else {
+        "::steadfast::steadfast_bytes"
+    };
+    let output = format!(
+        r#"impl {}::WriteByteStream<{}::DynBytes> for {} {{
+            fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, {}::BytesErr> {{
+                use {}::*;
+                Ok(TypeCode::DynSize.as_u8().try_write_bytes_le(stream)? {})
+            }}
+            fn write_byte_stream_be<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, {}::BytesErr> {{
+                use {}::*;
+                Ok(TypeCode::DynSize.as_u8().try_write_bytes_be(stream)? {})
+            }}
+            fn write_byte_stream_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, {}::BytesErr> {{
+                use {}::*;
+                Ok(TypeCode::DynSize.as_u8().try_write_bytes_ne(stream)? {})
+            }}
+        }}
+        "#,
+        crate_bounds,
+        crate_bounds,
+        struct_name,
+        crate_bounds,
+        crate_bounds,
+        fields_le,
+        crate_bounds,
+        crate_bounds,
+        fields_be,
+        crate_bounds,
+        crate_bounds,
+        fields_ne
+    );
+
+    output.parse().unwrap()
+}
+
+fn parse_rbs_struct(mut parser: TokenParser, is_public: bool, internal: bool) -> TokenStream {
+    let data_struct = parser.consume_struct(is_public).expect("a valid struct");
+
+    let struct_name = data_struct.name();
+    // let generic_idents = data_struct.generic_idents();
+    // let generic_traits = data_struct.generic_traits();
+    // if generics.len() > 0 {
+    //     // TODO: add generic support
+    //     unimplemented!("deriving deserialize with generics is not currently supported");
+    // }
+    let (fields_le, fields_be, fields_ne): (String, String, String) = data_struct
+        .fields()
+        .iter()
+        .map(|(name, field_data)| {
+            (
+                format!(
+                    "{}: <{}>::read_byte_stream_le(stream, checksum)?,",
+                    name,
+                    field_data.ty_str()
+                ),
+                format!(
+                    "{}: <{}>::read_byte_stream_be(stream, checksum)?,",
+                    name,
+                    field_data.ty_str()
+                ),
+                format!(
+                    "{}: <{}>::read_byte_stream_ne(stream, checksum)?,",
+                    name,
+                    field_data.ty_str()
+                ),
+            )
+        })
+        .collect();
+
+    let crate_bound = if internal {
+        "::steadfast_bytes"
+    } else {
+        "::steadfast::steadfast_bytes"
+    };
+
+    let output = format!(
+        r#"impl {}::ReadByteStream<{}::DynBytes> for {} {{
+            fn read_byte_stream_le<R: std::io::Read>(stream: &mut R, checksum: &mut usize) -> Result<Self, {}::BytesErr> {{
+                use {}::*;
+                let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream, checksum)?);
+                if found == TypeCode::DynSize {{
+                    Ok(Self {{
+                        {}
+                    }})
+                }} else {{
+                    Err(BytesErr::UnexpectedTypeCode {{
+                        expected: TypeCode::DynSize,
+                        found,
+                    }})
+                }}
+            }}
+            fn read_byte_stream_be<R: std::io::Read>(stream: &mut R, checksum: &mut usize) -> Result<Self, {}::BytesErr> {{
+                use {}::*;
+                let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream, checksum)?);
+                if found == TypeCode::DynSize {{
+                    Ok(Self {{
+                        {}
+                    }})
+                }} else {{
+                    Err(BytesErr::UnexpectedTypeCode {{
+                        expected: TypeCode::DynSize,
+                        found,
+                    }})
+                }}
+            }}
+            fn read_byte_stream_ne<R: std::io::Read>(stream: &mut R, checksum: &mut usize) -> Result<Self, {}::BytesErr> {{
+                use {}::*;
+                let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream, checksum)?);
+                if found == TypeCode::DynSize {{
+                    Ok(Self {{
+                        {}
+                    }})
+                }} else {{
+                    Err(BytesErr::UnexpectedTypeCode {{
+                        expected: TypeCode::DynSize,
+                        found,
+                    }})
+                }}
+            }}
+        }}"#,
+        crate_bound,
+        crate_bound,
+        struct_name,
+        crate_bound,
+        crate_bound,
+        fields_le,
+        crate_bound,
+        crate_bound,
+        fields_be,
+        crate_bound,
+        crate_bound,
+        fields_ne
+    );
+    eprintln!("{}", output);
+
+    output.parse().unwrap()
+}
 
 fn parse_deserialize_struct(mut parser: TokenParser, is_public: bool) -> TokenStream {
     let data_struct = parser.consume_struct(is_public).expect("a valid struct");
@@ -223,8 +385,84 @@ fn parse_deserialize_struct(mut parser: TokenParser, is_public: bool) -> TokenSt
 }
 
 #[proc_macro_derive(ReadByteStream)]
-pub fn derive_read_byte_stream(items: TokenStream) -> TokenStream {
-    todo!()
+pub fn derive_rbs(items: TokenStream) -> TokenStream {
+    let mut parser = TokenParser::new(items);
+
+    let is_pub = parser.is_ident("pub");
+    if is_pub {
+        parser.consume();
+    }
+
+    match parser.consume_if(|p| p.is_ident("struct")) {
+        Ok(_) => parse_rbs_struct(parser, is_pub, false),
+        Err(_) => match parser.consume_if(|p| p.is_ident("enum")) {
+            Ok(_) => {
+                unimplemented!("Enum serialization is not supported at this time")
+            }
+
+            Err(_) => panic!("Expected a struct or enum"),
+        },
+    }
+}
+#[proc_macro_derive(ReadByteStreamInternal)]
+pub fn derive_rbs_internal(items: TokenStream) -> TokenStream {
+    let mut parser = TokenParser::new(items);
+
+    let is_pub = parser.is_ident("pub");
+    if is_pub {
+        parser.consume();
+    }
+
+    match parser.consume_if(|p| p.is_ident("struct")) {
+        Ok(_) => parse_rbs_struct(parser, is_pub, true),
+        Err(_) => match parser.consume_if(|p| p.is_ident("enum")) {
+            Ok(_) => {
+                unimplemented!("Enum serialization is not supported at this time")
+            }
+
+            Err(_) => panic!("Expected a struct or enum"),
+        },
+    }
+}
+#[proc_macro_derive(WriteByteStream)]
+pub fn derive_wbs(items: TokenStream) -> TokenStream {
+    let mut parser = TokenParser::new(items);
+
+    let is_pub = parser.is_ident("pub");
+    if is_pub {
+        parser.consume();
+    }
+
+    match parser.consume_if(|p| p.is_ident("struct")) {
+        Ok(_) => parse_wbs_struct(parser, is_pub, false),
+        Err(_) => match parser.consume_if(|p| p.is_ident("enum")) {
+            Ok(_) => {
+                unimplemented!("Enum serialization is not supported at this time")
+            }
+
+            Err(_) => panic!("Expected a struct or enum"),
+        },
+    }
+}
+#[proc_macro_derive(WriteByteStreamInternal)]
+pub fn derive_wbs_internal(items: TokenStream) -> TokenStream {
+    let mut parser = TokenParser::new(items);
+
+    let is_pub = parser.is_ident("pub");
+    if is_pub {
+        parser.consume();
+    }
+
+    match parser.consume_if(|p| p.is_ident("struct")) {
+        Ok(_) => parse_wbs_struct(parser, is_pub, true),
+        Err(_) => match parser.consume_if(|p| p.is_ident("enum")) {
+            Ok(_) => {
+                unimplemented!("Enum serialization is not supported at this time")
+            }
+
+            Err(_) => panic!("Expected a struct or enum"),
+        },
+    }
 }
 
 #[proc_macro_derive(Deserialize)]

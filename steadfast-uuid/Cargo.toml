@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 steadfast-rand = {path = "../steadfast-rand"}
 steadfast-bytes = {path = "../steadfast-bytes"}
+steadfast-time = {path = "../steadfast-time"}

@@ -1,12 +1,19 @@
 use std::{cmp::Ordering, str::FromStr};
 use steadfast_bytes::{
-    AsArraySelf, ByteSize, BytesErr, FromBytes, ToBytes, TryReadBytes, TypeCode, TypeCoded,
+    AsArraySelf, ByteSize, BytesErr, FromBytes, ToBytes, TryReadBytes, TryWriteBytes, TypeCode,
+    TypeCoded,
 };
 use steadfast_rand::Random;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UUID(pub u128);
+
+impl From<UUID> for steadfast_time::UTC {
+    fn from(value: UUID) -> Self {
+        steadfast_time::UTC::from_unix_epoch_millis(value.extract_timestamp())
+    }
+}
 
 impl UUID {
     pub fn as_u128(&self) -> u128 {
@@ -213,14 +220,29 @@ impl TypeCoded for UUID {
     const TYPE_CODE: TypeCode = TypeCode::Extension(17);
 }
 impl TryReadBytes for UUID {
-    fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        Ok(Self::from_u128(<u128>::try_read_bytes_le(stream)?))
+    fn try_read_bytes_le<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        Ok(Self::from_u128(<u128>::try_read_bytes_le(
+            stream, checksum,
+        )?))
     }
-    fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        Ok(Self::from_u128(<u128>::try_read_bytes_be(stream)?))
+    fn try_read_bytes_be<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        Ok(Self::from_u128(<u128>::try_read_bytes_be(
+            stream, checksum,
+        )?))
     }
-    fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        Ok(Self::from_u128(<u128>::try_read_bytes_ne(stream)?))
+    fn try_read_bytes_ne<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        Ok(Self::from_u128(<u128>::try_read_bytes_ne(
+            stream, checksum,
+        )?))
     }
 }
 
@@ -236,6 +258,18 @@ where
     }
     fn from_bytes_ne(bytes: T) -> Self {
         UUID::from_u128(<u128>::from_ne_bytes(bytes.as_array_self()))
+    }
+}
+
+impl TryWriteBytes for UUID {
+    fn try_write_bytes_le<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
+        Ok(stream.write(&self.0.to_le_bytes())?)
+    }
+    fn try_write_bytes_be<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
+        Ok(stream.write(&self.0.to_be_bytes())?)
+    }
+    fn try_write_bytes_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
+        Ok(stream.write(&self.0.to_ne_bytes())?)
     }
 }
 

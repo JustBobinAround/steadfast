@@ -1,14 +1,11 @@
 use core::cmp::Ordering;
-use std::collections::BTreeMap;
 use std::marker::PhantomData;
-
-use super::Database;
+use steadfast_bytes::{DynBytes, ReadByteStream as RBS, TypeCode, WriteByteStream as WBS};
 use steadfast_crypt::SHA256;
-use steadfast_macros::{InternalTableSF, sha256_from_tokens};
-use steadfast_serializer::{DataHolder, Deserialize, PrimType, Serialize};
 use steadfast_time::UTC;
 use steadfast_uuid::UUID;
-pub trait STable: Serialize + Deserialize + PartialOrd + PartialEq {
+
+pub trait STable: RBS<DynBytes> + WBS<DynBytes> + PartialOrd + PartialEq {
     fn table_name() -> &'static str;
     fn table_display_name() -> &'static str;
     fn map_indexed_field_hash(field_name: &str) -> Option<SHA256>;
@@ -16,24 +13,6 @@ pub trait STable: Serialize + Deserialize + PartialOrd + PartialEq {
     fn cmp_field(&self, other: &Self, field_name: &str) -> Option<Ordering>;
     const TABLE_ID: SHA256;
     const TYPE_HASH: SHA256;
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, InternalTableSF)]
-pub struct TestStruct {
-    #[indexed]
-    test_field: u32,
-}
-
-impl Deserialize for TestStruct {
-    fn deserialize(dh: DataHolder) -> Result<Self, ()> {
-        todo!()
-    }
-}
-
-impl Serialize for TestStruct {
-    fn serialize(self) -> DataHolder {
-        todo!()
-    }
 }
 
 struct TableRef<T: STable> {
@@ -58,6 +37,11 @@ impl<T: STable> TableRecord<T> {
     }
     pub fn sys_uuid(&self) -> &UUID {
         &self.sys_uuid
+    }
+
+    pub fn new(inner_record: T) -> Result<TableRecord<T>, ()> {
+        let sys_uuid = UUID::rand_v7().map_err(|_| ())?;
+        todo!()
     }
 }
 
@@ -91,52 +75,117 @@ impl<T: STable> STable for TableRecord<T> {
     const TYPE_HASH: SHA256 = T::TYPE_HASH;
 }
 
-impl<T: STable> Deserialize for TableRecord<T> {
-    fn deserialize(dh: steadfast_serializer::DataHolder) -> Result<Self, ()> {
-        match dh {
-            DataHolder::Struct(mut fields) => {
-                let (sys_uuid, sys_created_on) = match fields.remove("sys_uuid") {
-                    Some(DataHolder::Primitive(PrimType::UUID(sys_uuid))) => {
-                        let sys_created_on =
-                            UTC::from_unix_epoch_millis(sys_uuid.extract_timestamp());
-                        (sys_uuid, sys_created_on)
-                    }
-                    _ => return Err(()),
-                };
-                let sys_updated_on = match fields.remove("sys_updated_on") {
-                    Some(DataHolder::Primitive(PrimType::UTC(sys_update_on))) => sys_update_on,
-                    _ => return Err(()),
-                };
-                let inner_record = match fields.remove("inner") {
-                    Some(inner_record) => T::deserialize(inner_record)?,
-                    _ => return Err(()),
-                };
-                Ok(Self {
-                    sys_created_on,
-                    sys_updated_on,
-                    sys_uuid,
-                    inner_record,
-                })
-            }
-            _ => Err(()),
+impl<T: STable> RBS<DynBytes> for TableRecord<T> {
+    fn read_byte_stream_le<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, steadfast_bytes::BytesErr> {
+        let mut inner_checksum = 0;
+        let sys_uuid = <UUID>::read_byte_stream_le(stream, &mut inner_checksum)?;
+        let sys_created_on: UTC = sys_uuid.into();
+        let sys_updated_on = <UTC>::read_byte_stream_le(stream, &mut inner_checksum)?;
+        let inner_record = <T>::read_byte_stream_le(stream, &mut inner_checksum)?;
+        let record_byte_len = <usize>::read_byte_stream_le(stream, checksum)?;
+        *checksum += inner_checksum;
+        if record_byte_len == inner_checksum {
+            Ok(Self {
+                sys_created_on,
+                sys_updated_on,
+                sys_uuid,
+                inner_record,
+            })
+        } else {
+            Err(steadfast_bytes::BytesErr::ChecksumFailed {
+                expected: inner_checksum,
+                found: record_byte_len,
+            })
+        }
+    }
+    fn read_byte_stream_be<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, steadfast_bytes::BytesErr> {
+        let mut inner_checksum = 0;
+        let sys_uuid = <UUID>::read_byte_stream_be(stream, &mut inner_checksum)?;
+        let sys_created_on: UTC = sys_uuid.into();
+        let sys_updated_on = <UTC>::read_byte_stream_be(stream, &mut inner_checksum)?;
+        let inner_record = <T>::read_byte_stream_be(stream, &mut inner_checksum)?;
+        let record_byte_len = <usize>::read_byte_stream_be(stream, checksum)?;
+        *checksum += inner_checksum;
+        if record_byte_len == inner_checksum {
+            Ok(Self {
+                sys_created_on,
+                sys_updated_on,
+                sys_uuid,
+                inner_record,
+            })
+        } else {
+            Err(steadfast_bytes::BytesErr::ChecksumFailed {
+                expected: inner_checksum,
+                found: record_byte_len,
+            })
+        }
+    }
+    fn read_byte_stream_ne<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, steadfast_bytes::BytesErr> {
+        let mut inner_checksum = 0;
+        let sys_uuid = <UUID>::read_byte_stream_ne(stream, &mut inner_checksum)?;
+        let sys_created_on: UTC = sys_uuid.into();
+        let sys_updated_on = <UTC>::read_byte_stream_ne(stream, &mut inner_checksum)?;
+        let inner_record = <T>::read_byte_stream_ne(stream, &mut inner_checksum)?;
+        let record_byte_len = <usize>::read_byte_stream_ne(stream, checksum)?;
+        *checksum += inner_checksum;
+        if record_byte_len == inner_checksum {
+            Ok(Self {
+                sys_created_on,
+                sys_updated_on,
+                sys_uuid,
+                inner_record,
+            })
+        } else {
+            Err(steadfast_bytes::BytesErr::ChecksumFailed {
+                expected: inner_checksum,
+                found: record_byte_len,
+            })
         }
     }
 }
 
-impl<T: STable> Serialize for TableRecord<T> {
-    fn serialize(self) -> steadfast_serializer::DataHolder {
-        let mut map = BTreeMap::new();
-        map.insert(
-            String::from("sys_uuid"),
-            DataHolder::Primitive(PrimType::UUID(self.sys_uuid)),
-        );
-        map.insert(
-            String::from("sys_updated_on"),
-            DataHolder::Primitive(PrimType::UTC(self.sys_updated_on)),
-        );
-        map.insert(String::from("inner_record"), self.inner_record.serialize());
-
-        DataHolder::Struct(map)
+impl<T: STable> WBS<DynBytes> for TableRecord<T> {
+    fn write_byte_stream_le<W: std::io::Write>(
+        &self,
+        stream: &mut W,
+    ) -> Result<usize, steadfast_bytes::BytesErr> {
+        let record_len = TypeCode::DynSize.as_u8().write_byte_stream_le(stream)?
+            + self.sys_uuid.write_byte_stream_le(stream)?
+            + self.sys_updated_on.write_byte_stream_le(stream)?
+            + self.inner_record.write_byte_stream_le(stream)?;
+        let final_len = record_len.write_byte_stream_le(stream)? + record_len;
+        Ok(final_len)
+    }
+    fn write_byte_stream_be<W: std::io::Write>(
+        &self,
+        stream: &mut W,
+    ) -> Result<usize, steadfast_bytes::BytesErr> {
+        let record_len = TypeCode::DynSize.as_u8().write_byte_stream_be(stream)?
+            + self.sys_uuid.write_byte_stream_be(stream)?
+            + self.sys_updated_on.write_byte_stream_be(stream)?
+            + self.inner_record.write_byte_stream_be(stream)?;
+        let final_len = record_len.write_byte_stream_be(stream)? + record_len;
+        Ok(final_len)
+    }
+    fn write_byte_stream_ne<W: std::io::Write>(
+        &self,
+        stream: &mut W,
+    ) -> Result<usize, steadfast_bytes::BytesErr> {
+        let record_len = TypeCode::DynSize.as_u8().write_byte_stream_ne(stream)?
+            + self.sys_uuid.write_byte_stream_ne(stream)?
+            + self.sys_updated_on.write_byte_stream_ne(stream)?
+            + self.inner_record.write_byte_stream_ne(stream)?;
+        let final_len = record_len.write_byte_stream_ne(stream)? + record_len;
+        Ok(final_len)
     }
 }
 
@@ -146,9 +195,30 @@ mod tests {
 
     #[test]
     fn test_cmp_field() {
-        let a = TestStruct { test_field: 0 };
+        use steadfast_macros::{InternalTableSF, ReadByteStreamInternal, WriteByteStreamInternal};
+        #[derive(
+            Debug,
+            InternalTableSF,
+            ReadByteStreamInternal,
+            WriteByteStreamInternal,
+            PartialOrd,
+            PartialEq,
+        )]
+        pub struct TestStruct {
+            test_field: u32,
+        }
+        let a = TestStruct { test_field: 3 };
+        let b = TestStruct { test_field: 5 };
 
-        let b = TestStruct { test_field: 3 };
+        let mut c = std::io::Cursor::new(Vec::new());
+        let checksum_a = a.write_byte_stream_le(&mut c).unwrap();
+        c.set_position(0);
+        let mut checksum_b = 0;
+        assert_eq!(
+            a,
+            <TestStruct>::read_byte_stream_le(&mut c, &mut checksum_b).unwrap()
+        );
+        assert_eq!(checksum_a, checksum_b);
         assert_eq!(a.cmp_field(&b, "test_field"), Some(Ordering::Less))
     }
 }

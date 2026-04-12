@@ -14,7 +14,7 @@ use std::{
     path::Path,
 };
 use steadfast_bytes::ToBytes;
-use steadfast_serializer::{DataHolder, Deserialize, Serialize};
+// use steadfast_serializer::DataHolder;
 use steadfast_uuid::UUID;
 
 #[derive(Debug)]
@@ -108,8 +108,8 @@ impl<'a> Database<'a> {
             }
             _ => {}
         }
-        let data = data.serialize();
-        let mut buf = data.to_bytes(Vec::new());
+        // let data = data.serialize();
+        // let mut buf = data.to_bytes(Vec::new());
         let last_update = Self::current_time()?;
         if uuid.extract_timestamp() > last_update as u64 {
             //time went backwards some how
@@ -124,22 +124,22 @@ impl<'a> Database<'a> {
         // };
 
         let uuid_bytes = &uuid.as_u128().to_le_bytes();
-        let data_len_bytes = &buf.len().to_le_bytes();
+        // let data_len_bytes = &buf.len().to_le_bytes();
         let last_update_bytes = &last_update.to_le_bytes();
         let table_id_bytes = T::TABLE_ID.to_bytes_le();
         let table_type_bytes = T::TYPE_HASH.to_bytes_le();
         self.write_bytes_exact(uuid_bytes)?;
         self.write_bytes_exact(&table_id_bytes)?;
         self.write_bytes_exact(&table_type_bytes)?;
-        self.write_bytes_exact(data_len_bytes)?;
+        // self.write_bytes_exact(data_len_bytes)?;
         self.write_bytes_exact(last_update_bytes)?;
-        self.write_bytes_exact(&buf)?;
+        // self.write_bytes_exact(&buf)?;
         self.flush_writer()?;
 
         // self.insert_entry(entry);
 
-        self.file_size +=
-            &buf.len() + uuid_bytes.len() + data_len_bytes.len() + last_update_bytes.len();
+        // self.file_size +=
+        //     &buf.len() + uuid_bytes.len() + data_len_bytes.len() + last_update_bytes.len();
 
         Ok(())
     }
@@ -155,8 +155,9 @@ impl<'a> Database<'a> {
 
         let (_, data_len) = self.read_address_entry_at(address)?;
         let bytes = self.read_entry_data(data_len)?;
-        let dh = DataHolder::from_bytes(&bytes).map_err(|_| DatabaseErr::FailedToDeserialize)?;
-        T::deserialize(dh.1).map_err(|_| DatabaseErr::FailedToDeserialize)
+        // let dh = DataHolder::from_bytes(&bytes).map_err(|_| DatabaseErr::FailedToDeserialize)?;
+        // T::deserialize(dh.1).map_err(|_| DatabaseErr::FailedToDeserialize)
+        todo!()
     }
 
     fn index_next_entry(&mut self) -> Result<(), DatabaseErr> {

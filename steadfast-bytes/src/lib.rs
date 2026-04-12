@@ -4,6 +4,7 @@ pub enum BytesErr {
     IoError(std::io::Error),
     FromUtf8Error(std::string::FromUtf8Error),
     UnexpectedTypeCode { expected: TypeCode, found: TypeCode },
+    ChecksumFailed { expected: usize, found: usize },
 }
 
 impl From<std::io::Error> for BytesErr {
@@ -109,9 +110,18 @@ pub trait FromBytes<T>: Sized {
 }
 
 pub trait TryReadBytes: Sized {
-    fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr>;
-    fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr>;
-    fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr>;
+    fn try_read_bytes_le<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr>;
+    fn try_read_bytes_be<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr>;
+    fn try_read_bytes_ne<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr>;
 }
 
 pub trait ToBytes<T> {
@@ -121,9 +131,9 @@ pub trait ToBytes<T> {
 }
 
 pub trait TryWriteBytes {
-    fn try_write_bytes_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr>;
-    fn try_write_bytes_be<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr>;
-    fn try_write_bytes_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr>;
+    fn try_write_bytes_le<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr>;
+    fn try_write_bytes_be<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr>;
+    fn try_write_bytes_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr>;
 }
 
 impl<T: TryWriteBytes> TypeCoded for Vec<T> {
@@ -205,19 +215,31 @@ macro_rules! impl_byte_size {
         }
 
         impl TryReadBytes for $ty {
-            fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+            fn try_read_bytes_le<R: std::io::Read>(
+                stream: &mut R,
+                checksum: &mut usize,
+            ) -> Result<Self, BytesErr> {
                 let mut buf = [0u8; $size];
                 stream.read_exact(&mut buf)?;
+                *checksum += $size;
                 Ok(<$ty>::from_le_bytes(buf))
             }
-            fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+            fn try_read_bytes_be<R: std::io::Read>(
+                stream: &mut R,
+                checksum: &mut usize,
+            ) -> Result<Self, BytesErr> {
                 let mut buf = [0u8; $size];
                 stream.read_exact(&mut buf)?;
+                *checksum += $size;
                 Ok(<$ty>::from_be_bytes(buf))
             }
-            fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+            fn try_read_bytes_ne<R: std::io::Read>(
+                stream: &mut R,
+                checksum: &mut usize,
+            ) -> Result<Self, BytesErr> {
                 let mut buf = [0u8; $size];
                 stream.read_exact(&mut buf)?;
+                *checksum += $size;
                 Ok(<$ty>::from_ne_bytes(buf))
             }
         }
@@ -237,23 +259,20 @@ macro_rules! impl_byte_size {
             fn try_write_bytes_le<W: std::io::Write>(
                 &self,
                 stream: &mut W,
-            ) -> Result<(), BytesErr> {
-                stream.write(&self.to_le_bytes())?;
-                Ok(())
+            ) -> Result<usize, BytesErr> {
+                Ok(stream.write(&self.to_le_bytes())?)
             }
             fn try_write_bytes_be<W: std::io::Write>(
                 &self,
                 stream: &mut W,
-            ) -> Result<(), BytesErr> {
-                stream.write(&self.to_be_bytes())?;
-                Ok(())
+            ) -> Result<usize, BytesErr> {
+                Ok(stream.write(&self.to_be_bytes())?)
             }
             fn try_write_bytes_ne<W: std::io::Write>(
                 &self,
                 stream: &mut W,
-            ) -> Result<(), BytesErr> {
-                stream.write(&self.to_ne_bytes())?;
-                Ok(())
+            ) -> Result<usize, BytesErr> {
+                Ok(stream.write(&self.to_ne_bytes())?)
             }
         }
     };
@@ -306,39 +325,48 @@ macro_rules! impl_byte_size {
             fn try_write_bytes_le<W: std::io::Write>(
                 &self,
                 stream: &mut W,
-            ) -> Result<(), BytesErr> {
-                stream.write(&(*self as $override).to_le_bytes())?;
-                Ok(())
+            ) -> Result<usize, BytesErr> {
+                Ok(stream.write(&(*self as $override).to_le_bytes())?)
             }
             fn try_write_bytes_be<W: std::io::Write>(
                 &self,
                 stream: &mut W,
-            ) -> Result<(), BytesErr> {
-                stream.write(&(*self as $override).to_be_bytes())?;
-                Ok(())
+            ) -> Result<usize, BytesErr> {
+                Ok(stream.write(&(*self as $override).to_be_bytes())?)
             }
             fn try_write_bytes_ne<W: std::io::Write>(
                 &self,
                 stream: &mut W,
-            ) -> Result<(), BytesErr> {
-                stream.write(&(*self as $override).to_ne_bytes())?;
-                Ok(())
+            ) -> Result<usize, BytesErr> {
+                Ok(stream.write(&(*self as $override).to_ne_bytes())?)
             }
         }
         impl TryReadBytes for $ty {
-            fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+            fn try_read_bytes_le<R: std::io::Read>(
+                stream: &mut R,
+                checksum: &mut usize,
+            ) -> Result<Self, BytesErr> {
                 let mut buf = [0u8; $size];
                 stream.read_exact(&mut buf)?;
+                *checksum += $size;
                 Ok(<$override>::from_le_bytes(buf) as $ty)
             }
-            fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+            fn try_read_bytes_be<R: std::io::Read>(
+                stream: &mut R,
+                checksum: &mut usize,
+            ) -> Result<Self, BytesErr> {
                 let mut buf = [0u8; $size];
                 stream.read_exact(&mut buf)?;
+                *checksum += $size;
                 Ok(<$override>::from_be_bytes(buf) as $ty)
             }
-            fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+            fn try_read_bytes_ne<R: std::io::Read>(
+                stream: &mut R,
+                checksum: &mut usize,
+            ) -> Result<Self, BytesErr> {
                 let mut buf = [0u8; $size];
                 stream.read_exact(&mut buf)?;
+                *checksum += $size;
                 Ok(<$override>::from_ne_bytes(buf) as $ty)
             }
         }
@@ -384,19 +412,31 @@ where
 }
 
 impl TryReadBytes for bool {
-    fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+    fn try_read_bytes_le<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
         let mut buf = [0u8; 1];
         stream.read_exact(&mut buf)?;
+        *checksum += 1;
         Ok(buf[0] == 1)
     }
-    fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+    fn try_read_bytes_be<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
         let mut buf = [0u8; 1];
         stream.read_exact(&mut buf)?;
+        *checksum += 1;
         Ok(buf[0] == 1)
     }
-    fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+    fn try_read_bytes_ne<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
         let mut buf = [0u8; 1];
         stream.read_exact(&mut buf)?;
+        *checksum += 1;
         Ok(buf[0] == 1)
     }
 }
@@ -425,45 +465,54 @@ impl ByteType for SizedBytes {}
 impl ByteType for DynBytes {}
 
 pub trait WriteByteStream<T: ByteType>: Sized {
-    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr>;
-    fn write_byte_stream_be<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr>;
-    fn write_byte_stream_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr>;
+    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr>;
+    fn write_byte_stream_be<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr>;
+    fn write_byte_stream_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr>;
 }
 
 pub trait ReadByteStream<T: ByteType>: Sized {
-    fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr>;
-    fn read_byte_stream_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr>;
-    fn read_byte_stream_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr>;
+    fn read_byte_stream_le<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr>;
+    fn read_byte_stream_be<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr>;
+    fn read_byte_stream_ne<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr>;
 }
 
 impl<TT> WriteByteStream<SizedBytes> for TT
 where
     TT: TryWriteBytes + TypeCoded,
 {
-    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
         stream.write_all(&[TT::TYPE_CODE.as_u8()])?;
-        self.try_write_bytes_le(stream)?;
-        Ok(())
+        Ok(self.try_write_bytes_le(stream)? + 1)
     }
-    fn write_byte_stream_be<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+    fn write_byte_stream_be<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
         stream.write_all(&[TT::TYPE_CODE.as_u8()])?;
-        self.try_write_bytes_be(stream)?;
-        Ok(())
+        Ok(self.try_write_bytes_be(stream)? + 1)
     }
-    fn write_byte_stream_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+    fn write_byte_stream_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
         stream.write_all(&[TT::TYPE_CODE.as_u8()])?;
-        self.try_write_bytes_ne(stream)?;
-        Ok(())
+        Ok(self.try_write_bytes_ne(stream)? + 1)
     }
 }
 impl<TT> ReadByteStream<SizedBytes> for TT
 where
     TT: TryReadBytes + TypeCoded,
 {
-    fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+    fn read_byte_stream_le<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream, checksum)?);
         if found == TT::TYPE_CODE {
-            Ok(<TT>::try_read_bytes_le(stream)?)
+            Ok(<TT>::try_read_bytes_le(stream, checksum)?)
         } else {
             Err(BytesErr::UnexpectedTypeCode {
                 expected: TT::TYPE_CODE,
@@ -471,10 +520,13 @@ where
             })
         }
     }
-    fn read_byte_stream_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream)?);
+    fn read_byte_stream_be<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream, checksum)?);
         if found == TT::TYPE_CODE {
-            Ok(<TT>::try_read_bytes_be(stream)?)
+            Ok(<TT>::try_read_bytes_be(stream, checksum)?)
         } else {
             Err(BytesErr::UnexpectedTypeCode {
                 expected: TT::TYPE_CODE,
@@ -482,10 +534,13 @@ where
             })
         }
     }
-    fn read_byte_stream_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream)?);
+    fn read_byte_stream_ne<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream, checksum)?);
         if found == TT::TYPE_CODE {
-            Ok(<TT>::try_read_bytes_ne(stream)?)
+            Ok(<TT>::try_read_bytes_ne(stream, checksum)?)
         } else {
             Err(BytesErr::UnexpectedTypeCode {
                 expected: TT::TYPE_CODE,
@@ -499,46 +554,51 @@ impl<TT> WriteByteStream<SizedBytes> for Vec<TT>
 where
     TT: TryWriteBytes + TypeCoded,
 {
-    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
         TypeCode::DynSize.as_u8().try_write_bytes_le(stream)?;
         TT::TYPE_CODE.as_u8().try_write_bytes_le(stream)?;
         self.len().try_write_bytes_le(stream)?;
+        let mut bytes_written = 10;
         for item in self {
-            item.try_write_bytes_le(stream)?;
+            bytes_written += item.try_write_bytes_le(stream)?;
         }
-        Ok(())
+        Ok(bytes_written)
     }
-    fn write_byte_stream_be<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+    fn write_byte_stream_be<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
         TypeCode::DynSize.as_u8().try_write_bytes_be(stream)?;
         TT::TYPE_CODE.as_u8().try_write_bytes_be(stream)?;
         self.len().try_write_bytes_be(stream)?;
+        let mut bytes_written = 10;
         for item in self {
-            item.try_write_bytes_be(stream)?;
+            bytes_written += item.try_write_bytes_be(stream)?;
         }
-        Ok(())
+        Ok(bytes_written)
     }
-    fn write_byte_stream_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+    fn write_byte_stream_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
         TypeCode::DynSize.as_u8().try_write_bytes_ne(stream)?;
         TT::TYPE_CODE.as_u8().try_write_bytes_ne(stream)?;
-        self.len().try_write_bytes_ne(stream)?;
+        let mut bytes_written = 10;
         for item in self {
-            item.try_write_bytes_ne(stream)?;
+            bytes_written += item.try_write_bytes_ne(stream)?;
         }
-        Ok(())
+        Ok(bytes_written)
     }
 }
 impl<TT> ReadByteStream<SizedBytes> for Vec<TT>
 where
     TT: TryReadBytes + TypeCoded,
 {
-    fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+    fn read_byte_stream_le<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream, checksum)?);
         if found == TypeCode::DynSize {
-            let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+            let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream, checksum)?);
             if found == TT::TYPE_CODE {
-                let mut entries = Vec::with_capacity(<usize>::try_read_bytes_le(stream)?);
+                let mut entries = Vec::with_capacity(<usize>::try_read_bytes_le(stream, checksum)?);
                 for _ in 0..entries.capacity() {
-                    entries.push(<TT>::try_read_bytes_le(stream)?);
+                    entries.push(<TT>::try_read_bytes_le(stream, checksum)?);
                 }
                 Ok(entries)
             } else {
@@ -554,14 +614,17 @@ where
             })
         }
     }
-    fn read_byte_stream_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream)?);
+    fn read_byte_stream_be<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream, checksum)?);
         if found == TypeCode::DynSize {
-            let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream)?);
+            let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream, checksum)?);
             if found == TT::TYPE_CODE {
-                let mut entries = Vec::with_capacity(<usize>::try_read_bytes_be(stream)?);
+                let mut entries = Vec::with_capacity(<usize>::try_read_bytes_be(stream, checksum)?);
                 for _ in 0..entries.capacity() {
-                    entries.push(<TT>::try_read_bytes_be(stream)?);
+                    entries.push(<TT>::try_read_bytes_be(stream, checksum)?);
                 }
                 Ok(entries)
             } else {
@@ -577,14 +640,17 @@ where
             })
         }
     }
-    fn read_byte_stream_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream)?);
+    fn read_byte_stream_ne<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream, checksum)?);
         if found == TypeCode::DynSize {
-            let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream)?);
+            let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream, checksum)?);
             if found == TT::TYPE_CODE {
-                let mut entries = Vec::with_capacity(<usize>::try_read_bytes_ne(stream)?);
+                let mut entries = Vec::with_capacity(<usize>::try_read_bytes_ne(stream, checksum)?);
                 for _ in 0..entries.capacity() {
-                    entries.push(<TT>::try_read_bytes_ne(stream)?);
+                    entries.push(<TT>::try_read_bytes_ne(stream, checksum)?);
                 }
                 Ok(entries)
             } else {
@@ -605,41 +671,47 @@ impl<TT> WriteByteStream<DynBytes> for Vec<TT>
 where
     TT: WriteByteStream<DynBytes>,
 {
-    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
         TypeCode::DynSize.as_u8().try_write_bytes_le(stream)?;
         self.len().try_write_bytes_le(stream)?;
+        let mut bytes_written = 9;
         for item in self {
-            item.write_byte_stream_le(stream)?;
+            bytes_written += item.write_byte_stream_le(stream)?;
         }
-        Ok(())
+        Ok(bytes_written)
     }
-    fn write_byte_stream_be<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+    fn write_byte_stream_be<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
         TypeCode::DynSize.as_u8().try_write_bytes_be(stream)?;
         self.len().try_write_bytes_be(stream)?;
+        let mut bytes_written = 9;
         for item in self {
-            item.write_byte_stream_be(stream)?;
+            bytes_written += item.write_byte_stream_be(stream)?;
         }
-        Ok(())
+        Ok(bytes_written)
     }
-    fn write_byte_stream_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+    fn write_byte_stream_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
         TypeCode::DynSize.as_u8().try_write_bytes_ne(stream)?;
         self.len().try_write_bytes_ne(stream)?;
+        let mut bytes_written = 9;
         for item in self {
-            item.write_byte_stream_ne(stream)?;
+            bytes_written += item.write_byte_stream_ne(stream)?;
         }
-        Ok(())
+        Ok(bytes_written)
     }
 }
 impl<TT> ReadByteStream<DynBytes> for Vec<TT>
 where
     TT: ReadByteStream<DynBytes>,
 {
-    fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+    fn read_byte_stream_le<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream, checksum)?);
         if found == TypeCode::DynSize {
-            let mut entries = Vec::with_capacity(<usize>::try_read_bytes_le(stream)?);
+            let mut entries = Vec::with_capacity(<usize>::try_read_bytes_le(stream, checksum)?);
             for _ in 0..entries.capacity() {
-                entries.push(<TT>::read_byte_stream_le(stream)?);
+                entries.push(<TT>::read_byte_stream_le(stream, checksum)?);
             }
             Ok(entries)
         } else {
@@ -649,12 +721,15 @@ where
             })
         }
     }
-    fn read_byte_stream_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream)?);
+    fn read_byte_stream_be<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream, checksum)?);
         if found == TypeCode::DynSize {
-            let mut entries = Vec::with_capacity(<usize>::try_read_bytes_be(stream)?);
+            let mut entries = Vec::with_capacity(<usize>::try_read_bytes_be(stream, checksum)?);
             for _ in 0..entries.capacity() {
-                entries.push(<TT>::read_byte_stream_be(stream)?);
+                entries.push(<TT>::read_byte_stream_be(stream, checksum)?);
             }
             Ok(entries)
         } else {
@@ -664,12 +739,15 @@ where
             })
         }
     }
-    fn read_byte_stream_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream)?);
+    fn read_byte_stream_ne<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream, checksum)?);
         if found == TypeCode::DynSize {
-            let mut entries = Vec::with_capacity(<usize>::try_read_bytes_ne(stream)?);
+            let mut entries = Vec::with_capacity(<usize>::try_read_bytes_ne(stream, checksum)?);
             for _ in 0..entries.capacity() {
-                entries.push(<TT>::read_byte_stream_ne(stream)?);
+                entries.push(<TT>::read_byte_stream_ne(stream, checksum)?);
             }
             Ok(entries)
         } else {
@@ -681,39 +759,43 @@ where
     }
 }
 impl WriteByteStream<DynBytes> for String {
-    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+    fn write_byte_stream_le<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
         TypeCode::DynSize.as_u8().try_write_bytes_le(stream)?;
         TypeCode::CHAR.as_u8().try_write_bytes_le(stream)?;
         let bytes = self.as_bytes();
         bytes.len().try_write_bytes_le(stream)?;
         stream.write_all(bytes)?;
-        Ok(())
+        Ok(10 + bytes.len())
     }
-    fn write_byte_stream_be<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+    fn write_byte_stream_be<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
         TypeCode::DynSize.as_u8().try_write_bytes_be(stream)?;
         TypeCode::CHAR.as_u8().try_write_bytes_be(stream)?;
         let bytes = self.as_bytes();
         bytes.len().try_write_bytes_be(stream)?;
         stream.write_all(bytes)?;
-        Ok(())
+        Ok(10 + bytes.len())
     }
-    fn write_byte_stream_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<(), BytesErr> {
+    fn write_byte_stream_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
         TypeCode::DynSize.as_u8().try_write_bytes_ne(stream)?;
         TypeCode::CHAR.as_u8().try_write_bytes_ne(stream)?;
         let bytes = self.as_bytes();
         bytes.len().try_write_bytes_ne(stream)?;
         stream.write_all(bytes)?;
-        Ok(())
+        Ok(10 + bytes.len())
     }
 }
 impl ReadByteStream<DynBytes> for String {
-    fn read_byte_stream_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+    fn read_byte_stream_le<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream, checksum)?);
         if found == TypeCode::DynSize {
-            let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream)?);
+            let found = TypeCode::from_u8(<u8>::try_read_bytes_le(stream, checksum)?);
             if found == TypeCode::CHAR {
-                let mut entries = vec![0u8; <usize>::try_read_bytes_le(stream)?];
+                let mut entries = vec![0u8; <usize>::try_read_bytes_le(stream, checksum)?];
                 stream.read_exact(entries.as_mut_slice())?;
+                *checksum += entries.len();
                 Ok(String::from_utf8(entries)?)
             } else {
                 Err(BytesErr::UnexpectedTypeCode {
@@ -728,13 +810,17 @@ impl ReadByteStream<DynBytes> for String {
             })
         }
     }
-    fn read_byte_stream_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream)?);
+    fn read_byte_stream_be<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream, checksum)?);
         if found == TypeCode::DynSize {
-            let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream)?);
+            let found = TypeCode::from_u8(<u8>::try_read_bytes_be(stream, checksum)?);
             if found == TypeCode::CHAR {
-                let mut entries = vec![0u8; <usize>::try_read_bytes_be(stream)?];
+                let mut entries = vec![0u8; <usize>::try_read_bytes_be(stream, checksum)?];
                 stream.read_exact(entries.as_mut_slice())?;
+                *checksum += entries.len();
                 Ok(String::from_utf8(entries)?)
             } else {
                 Err(BytesErr::UnexpectedTypeCode {
@@ -749,13 +835,17 @@ impl ReadByteStream<DynBytes> for String {
             })
         }
     }
-    fn read_byte_stream_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
-        let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream)?);
+    fn read_byte_stream_ne<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
+        let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream, checksum)?);
         if found == TypeCode::DynSize {
-            let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream)?);
+            let found = TypeCode::from_u8(<u8>::try_read_bytes_ne(stream, checksum)?);
             if found == TypeCode::CHAR {
-                let mut entries = vec![0u8; <usize>::try_read_bytes_ne(stream)?];
+                let mut entries = vec![0u8; <usize>::try_read_bytes_ne(stream, checksum)?];
                 stream.read_exact(entries.as_mut_slice())?;
+                *checksum += entries.len();
                 Ok(String::from_utf8(entries)?)
             } else {
                 Err(BytesErr::UnexpectedTypeCode {
@@ -782,47 +872,81 @@ mod tests {
     fn test_str() {
         let s = String::from("just a test");
         let mut stream = Cursor::new(Vec::<u8>::new());
-        s.write_byte_stream_le(&mut stream).unwrap();
+        let checksum_a = s.write_byte_stream_le(&mut stream).unwrap();
         stream.set_position(0);
-        assert_eq!(s, <String>::read_byte_stream_le(&mut stream).unwrap());
+        let mut checksum_b = 0;
+        assert_eq!(
+            s,
+            <String>::read_byte_stream_le(&mut stream, &mut checksum_b).unwrap()
+        );
+        assert_eq!(checksum_a, checksum_b);
         let s = String::from("just a test");
 
         let mut stream = Cursor::new(Vec::<u8>::new());
-        s.write_byte_stream_be(&mut stream).unwrap();
+        let checksum_a = s.write_byte_stream_be(&mut stream).unwrap();
         stream.set_position(0);
-        assert_eq!(s, <String>::read_byte_stream_be(&mut stream).unwrap());
+        let mut checksum_b = 0;
+        assert_eq!(
+            s,
+            <String>::read_byte_stream_be(&mut stream, &mut checksum_b).unwrap()
+        );
+        assert_eq!(checksum_a, checksum_b);
 
         let s = String::from("just a test");
         let mut stream = Cursor::new(Vec::<u8>::new());
-        s.write_byte_stream_ne(&mut stream).unwrap();
+        let checksum_b = s.write_byte_stream_ne(&mut stream).unwrap();
         stream.set_position(0);
-        assert_eq!(s, <String>::read_byte_stream_ne(&mut stream).unwrap());
+        let mut checksum_b = 0;
+        assert_eq!(
+            s,
+            <String>::read_byte_stream_ne(&mut stream, &mut checksum_b).unwrap()
+        );
+        assert_eq!(checksum_a, checksum_b);
     }
 
     #[test]
     fn test_u8() {
         let mut stream = Cursor::new(Vec::<u8>::new());
-        0u8.write_byte_stream_le(&mut stream).unwrap();
+        let checksum_a = 0u8.write_byte_stream_le(&mut stream).unwrap();
         stream.set_position(0);
-        assert_eq!(0u8, <u8>::read_byte_stream_le(&mut stream).unwrap());
+        let mut checksum_b = 0;
+        assert_eq!(
+            0u8,
+            <u8>::read_byte_stream_le(&mut stream, &mut checksum_b).unwrap()
+        );
+        assert_eq!(checksum_a, checksum_a);
+
         let mut stream = Cursor::new(Vec::<u8>::new());
-        255u8.write_byte_stream_le(&mut stream).unwrap();
+        let checksum_a = 255u8.write_byte_stream_le(&mut stream).unwrap();
         stream.set_position(0);
-        assert_eq!(255u8, <u8>::read_byte_stream_le(&mut stream).unwrap());
+        let mut checksum_b = 0;
+        assert_eq!(
+            255u8,
+            <u8>::read_byte_stream_le(&mut stream, &mut checksum_b).unwrap()
+        );
+        assert_eq!(checksum_a, checksum_a);
     }
 
     #[test]
     fn test_vec() {
         let v = vec![0, 1, 1];
         let mut stream = Cursor::new(Vec::<u8>::new());
-        v.write_byte_stream_le(&mut stream).unwrap();
+        let checksum_a = v.write_byte_stream_le(&mut stream).unwrap();
         stream.set_position(0);
-        assert_eq!(v, <Vec<i32>>::read_byte_stream_le(&mut stream).unwrap());
+        let mut checksum_b = 0;
+        assert_eq!(
+            v,
+            <Vec<i32>>::read_byte_stream_le(&mut stream, &mut checksum_b).unwrap()
+        );
 
         let v = vec!["asdf".to_string(), "a".to_string(), "bb".to_string()];
         let mut stream = Cursor::new(Vec::<u8>::new());
-        v.write_byte_stream_le(&mut stream).unwrap();
+        let checksum_a = v.write_byte_stream_le(&mut stream).unwrap();
         stream.set_position(0);
-        assert_eq!(v, <Vec<String>>::read_byte_stream_le(&mut stream).unwrap());
+        let mut checksum_b = 0;
+        assert_eq!(
+            v,
+            <Vec<String>>::read_byte_stream_le(&mut stream, &mut checksum_b).unwrap()
+        );
     }
 }

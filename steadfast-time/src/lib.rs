@@ -2,7 +2,8 @@ use std::fmt::Display;
 use std::marker::PhantomData;
 use std::time::Duration;
 use steadfast_bytes::{
-    AsArraySelf, ByteSize, BytesErr, FromBytes, ToBytes, TryReadBytes, TypeCode, TypeCoded,
+    AsArraySelf, ByteSize, BytesErr, FromBytes, ToBytes, TryReadBytes, TryWriteBytes, TypeCode,
+    TypeCoded,
 };
 pub enum TimeErrSF {
     FailedToFetch,
@@ -59,20 +60,40 @@ impl TypeCoded for UTC {
 }
 
 impl TryReadBytes for UTC {
-    fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+    fn try_read_bytes_le<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
         Ok(UTC::from_unix_epoch_millis(<u64>::try_read_bytes_le(
-            stream,
+            stream, checksum,
         )?))
     }
-    fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+    fn try_read_bytes_be<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
         Ok(UTC::from_unix_epoch_millis(<u64>::try_read_bytes_be(
-            stream,
+            stream, checksum,
         )?))
     }
-    fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+    fn try_read_bytes_ne<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
         Ok(UTC::from_unix_epoch_millis(<u64>::try_read_bytes_ne(
-            stream,
+            stream, checksum,
         )?))
+    }
+}
+impl TryWriteBytes for UTC {
+    fn try_write_bytes_le<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
+        Ok(stream.write(&self.to_unix_epoch_millis().to_le_bytes())?)
+    }
+    fn try_write_bytes_be<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
+        Ok(stream.write(&self.to_unix_epoch_millis().to_be_bytes())?)
+    }
+    fn try_write_bytes_ne<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
+        Ok(stream.write(&self.to_unix_epoch_millis().to_ne_bytes())?)
     }
 }
 

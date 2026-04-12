@@ -208,24 +208,33 @@ impl TypeCoded for SHA256 {
 }
 
 impl TryReadBytes for SHA256 {
-    fn try_read_bytes_le<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+    fn try_read_bytes_le<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
         let mut buf = [0u32; 8];
         for i in buf.iter_mut() {
-            *i = <u32>::try_read_bytes_le(stream)?;
+            *i = <u32>::try_read_bytes_le(stream, checksum)?;
         }
         Ok(Self::from_raw(buf))
     }
-    fn try_read_bytes_be<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+    fn try_read_bytes_be<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
         let mut buf = [0u32; 8];
         for i in buf.iter_mut() {
-            *i = <u32>::try_read_bytes_be(stream)?;
+            *i = <u32>::try_read_bytes_be(stream, checksum)?;
         }
         Ok(Self::from_raw(buf))
     }
-    fn try_read_bytes_ne<R: std::io::Read>(stream: &mut R) -> Result<Self, BytesErr> {
+    fn try_read_bytes_ne<R: std::io::Read>(
+        stream: &mut R,
+        checksum: &mut usize,
+    ) -> Result<Self, BytesErr> {
         let mut buf = [0u32; 8];
         for i in buf.iter_mut() {
-            *i = <u32>::try_read_bytes_ne(stream)?;
+            *i = <u32>::try_read_bytes_ne(stream, checksum)?;
         }
         Ok(Self::from_raw(buf))
     }

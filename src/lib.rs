@@ -1,6 +1,12 @@
 #![allow(clippy::from_str_radix_10)] //<< I just prefer this, idk
 #![doc = include_str!("../README.md")]
 extern crate self as steadfast;
+pub mod prelude {
+    pub use steadfast_bytes::{ReadByteStream as RBS, WriteByteStream as WBS};
+    pub use steadfast_macros::{
+        Deserialize, ReadByteStream, STable, ToDatabaseBytes, WriteByteStream, html, main,
+    };
+}
 pub mod errors;
 pub mod html;
 pub mod http;
@@ -8,6 +14,7 @@ pub mod stream_writer;
 pub mod variadics;
 
 pub use steadfast_async;
+pub use steadfast_bytes;
 pub use steadfast_db;
 pub use steadfast_json;
 /// proc macro to wrap main around async executor
@@ -37,7 +44,7 @@ pub use steadfast_json;
 ///
 /// Additionally, this macro expects the crate to have a name of "steadfast". Anything
 /// else will break the macro.
-pub use steadfast_macros::{Deserialize, STable, ToDatabaseBytes, html, main};
+pub use steadfast_macros::{Deserialize, ReadByteStream, STable, ToDatabaseBytes, html, main};
 pub use steadfast_parsing;
 pub use steadfast_serializer;
 pub use steadfast_uuid::UUID;

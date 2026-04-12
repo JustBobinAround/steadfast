@@ -7,6 +7,7 @@ name = "steadfast"
 version = "0.1.0"
 dependencies = [
  "steadfast-async",
+ "steadfast-bytes",
  "steadfast-db",
  "steadfast-json",
  "steadfast-macros",
@@ -89,4 +90,5 @@ version = "0.1.0"
 dependencies = [
  "steadfast-bytes",
  "steadfast-rand",
+ "steadfast-time",
 ]

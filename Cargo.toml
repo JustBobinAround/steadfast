@@ -25,3 +25,4 @@ steadfast-macros = {path="./steadfast-macros"}
 steadfast-parsing = {path="./steadfast-parsing"}
 steadfast-serializer = {path="./steadfast-serializer"}
 steadfast-uuid = {path="./steadfast-uuid"}
+steadfast-bytes = {path="./steadfast-bytes"}

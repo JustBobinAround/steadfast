@@ -59,8 +59,7 @@ impl<R: Read> Parsable<R> for PctEncoding {
         let hex = format!("{}{}", b1 as char, b2 as char);
         if hex.len() == 2 {
             let radix = 16;
-            let byte = u8::from_str_radix(hex.as_str(), radix)
-                .map_err(|_| ParseErr::FailedToParseNum { found: hex, radix })?;
+            let byte = u8::from_str_radix(hex.as_str(), radix)?;
             Ok(PctEncoding(byte as char))
         } else {
             Err(ParseErr::InvalidPctEncoding { found: hex })
@@ -218,12 +217,7 @@ impl<R: Read> Parsable<R> for Port {
         parser.consume_or_err(|c| c == b':')?;
         let port_num_str = parser.consume_while(|p| p.is_digit());
         let radix = 10;
-        let port = u16::from_str_radix(port_num_str.as_str(), radix).map_err(|_| {
-            ParseErr::FailedToParseNum {
-                found: port_num_str,
-                radix,
-            }
-        })?;
+        let port = u16::from_str_radix(port_num_str.as_str(), radix)?;
         Ok(Port(port))
     }
 }

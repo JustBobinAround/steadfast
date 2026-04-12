@@ -1,4 +1,8 @@
-use std::io::{BufReader, Cursor, Read};
+use std::{
+    io::{BufReader, Cursor, Read},
+    num::ParseIntError,
+    str::Utf8Error,
+};
 
 pub mod prelude {
     pub use super::{Parsable, ParseErr, ParseResult, Parser};
@@ -29,8 +33,9 @@ where
 /// Main error type for parsable trait.
 ///
 /// Should only be used with ParseResult Type.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ParseErr {
+    General,
     InvalidStatusCode {
         found: u16,
     },
@@ -41,7 +46,7 @@ pub enum ParseErr {
     InvalidRequestOption {
         found: String,
     },
-    InvalidUTF8,
+    InvalidUTF8(Utf8Error),
     InvalidScheme,
     InvalidPctEncoding {
         found: String,
@@ -80,10 +85,23 @@ pub enum ParseErr {
         found: String,
         radix: u32,
     },
+    ParseIntErr(ParseIntError),
     FailedToSeekDuringPop {
         tried_seeking_to: usize,
     },
     ZeroLenDispositionTy,
+}
+
+impl From<ParseIntError> for ParseErr {
+    fn from(value: ParseIntError) -> Self {
+        ParseErr::ParseIntErr(value)
+    }
+}
+
+impl From<Utf8Error> for ParseErr {
+    fn from(value: Utf8Error) -> Self {
+        ParseErr::InvalidUTF8(value)
+    }
 }
 
 /// Result type for Parsable trait

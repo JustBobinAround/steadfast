@@ -1,9 +1,37 @@
-use std::{cmp::Ordering, str::FromStr};
+use std::{cmp::Ordering, num::ParseIntError, str::FromStr};
 use steadfast_bytes::{
     AsArraySelf, ByteSize, BytesErr, FromBytes, ToBytes, TryReadBytes, TryWriteBytes, TypeCode,
     TypeCoded,
 };
-use steadfast_rand::Random;
+use steadfast_rand::{RandErr, Random};
+use steadfast_time::{TimeErr, UTC};
+
+#[derive(Debug)]
+pub enum UUIDErr {
+    TimeErr(TimeErr),
+    RandErr(RandErr),
+    ParseIntErr(ParseIntError),
+    InvalidLen { expected: usize, found: usize },
+    MissingDash,
+}
+
+impl From<TimeErr> for UUIDErr {
+    fn from(value: TimeErr) -> Self {
+        UUIDErr::TimeErr(value)
+    }
+}
+
+impl From<RandErr> for UUIDErr {
+    fn from(value: RandErr) -> Self {
+        UUIDErr::RandErr(value)
+    }
+}
+
+impl From<ParseIntError> for UUIDErr {
+    fn from(value: ParseIntError) -> Self {
+        UUIDErr::ParseIntErr(value)
+    }
+}
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -39,24 +67,18 @@ impl UUID {
     /// |                          table_hash                           |
     /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
     /// ```
-    pub fn from_table_hash(table_hash: u64) -> Result<Self, ()> {
-        let t_ms = Self::current_time()?;
-        Ok(UUID::default().encode_time(t_ms).encode_id(table_hash))
+    pub fn from_table_hash(table_hash: u64) -> Result<Self, UUIDErr> {
+        let t_ms = UTC::now()?;
+
+        Ok(UUID::default()
+            .encode_time(t_ms.to_unix_epoch_millis())
+            .encode_id(table_hash))
     }
 
     /// Sets rand_b section of uuid, forces rand_a to b 0 and uuid version to be v7.
     pub fn encode_id(mut self, id: u64) -> Self {
         self.0 = self.0 | id as u128;
         self
-    }
-
-    fn current_time() -> Result<u64, ()> {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        Ok(SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| ())?
-            .as_millis() as u64)
     }
 
     /// See RFC 9562, section 5.7
@@ -75,15 +97,15 @@ impl UUID {
     /// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
     /// ```
     /// See rand module to see how random nums are generated
-    pub fn rand_v7() -> Result<Self, ()> {
-        let t_ms = Self::current_time()?;
-        let rand_a = <u16>::rand().map_err(|_| ())?;
+    pub fn rand_v7() -> Result<Self, UUIDErr> {
+        let t_ms = UTC::now()?;
+        let rand_a = <u16>::rand()?;
         let version: u16 = 0x7 << 12;
         let top = ((version | rand_a) as u128) << 64;
 
-        let bottom = <u64>::rand().map_err(|_| ())? as u128;
+        let bottom = <u64>::rand()? as u128;
 
-        Ok(UUID(top | bottom).encode_time(t_ms))
+        Ok(UUID(top | bottom).encode_time(t_ms.to_unix_epoch_millis()))
     }
 
     pub fn encode_time(mut self, t_ms: u64) -> Self {
@@ -149,15 +171,22 @@ impl std::fmt::Display for UUID {
 /// HEXDIG   = DIGIT / "A" / "B" / "C" / "D" / "E" / "F"
 /// ```
 impl FromStr for UUID {
-    type Err = ();
+    type Err = UUIDErr;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.len() != 35 {
-            return Err(());
+            return Err(UUIDErr::InvalidLen {
+                expected: 35,
+                found: s.len(),
+            });
         }
 
-        fn is_dash(c: &str) -> Result<(), ()> {
-            if c == "-" { Ok(()) } else { Err(()) }
+        fn is_dash(c: &str) -> Result<(), UUIDErr> {
+            if c == "-" {
+                Ok(())
+            } else {
+                Err(UUIDErr::MissingDash)
+            }
         }
 
         let (s_data_1, remainder) = s.split_at(8);
@@ -171,14 +200,14 @@ impl FromStr for UUID {
         is_dash(dash)?; //should we even care about this check?
         let (s_data_4, _) = remainder.split_at(16);
 
-        let data_1 = u32::from_str_radix(s_data_1, 16).map_err(|_| ())?;
-        let data_2 = u16::from_str_radix(s_data_2, 16).map_err(|_| ())?;
-        let data_3 = u16::from_str_radix(s_data_3, 16).map_err(|_| ())?;
+        let data_1 = u32::from_str_radix(s_data_1, 16)?;
+        let data_2 = u16::from_str_radix(s_data_2, 16)?;
+        let data_3 = u16::from_str_radix(s_data_3, 16)?;
 
         let mut data_4 = [0_u8; 8];
         for idx in 0..data_4.len() {
             let s = &s_data_4[idx * 2..(idx * 2) + 2];
-            data_4[idx] = u8::from_str_radix(s, 16).map_err(|_| ())?;
+            data_4[idx] = u8::from_str_radix(s, 16)?;
         }
         let data_4 = <u64>::from_be_bytes(data_4) as u128;
 
@@ -194,8 +223,8 @@ mod tests {
 
     #[test]
     fn test_uuid_rand() {
-        let uuid = UUID::rand_v7();
-        assert!(uuid != Ok(UUID(0)));
+        let uuid = UUID::rand_v7().unwrap();
+        assert!(uuid != UUID(0));
     }
 
     #[test]

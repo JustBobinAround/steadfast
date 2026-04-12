@@ -31,19 +31,13 @@ pub trait PageBuffer<const PAGE_SIZE: usize, T: Read + Write + Seek>: Sized {
         &mut self,
         b_tree: &mut BTreeIndex<PAGE_SIZE, T>,
     ) -> Result<PageAddr<PAGE_SIZE>, IndexErr> {
-        let file_len = b_tree
-            .file
-            .seek(SeekFrom::End(0))
-            .map_err(|_| IndexErr::FailedToRead)?;
+        let file_len = b_tree.stream.seek(SeekFrom::End(0))?;
 
         self.set_page_addr(PageAddr::new(file_len));
 
         let (_, page_buf) = self.to_page_buffer();
 
-        b_tree
-            .file
-            .write_all(&page_buf)
-            .map_err(|_| IndexErr::FailedToWrite)?;
+        b_tree.stream.write_all(&page_buf)?;
 
         Ok(PageAddr::new(file_len))
     }
@@ -53,14 +47,8 @@ pub trait PageBuffer<const PAGE_SIZE: usize, T: Read + Write + Seek>: Sized {
     ) -> Result<PageAddr<PAGE_SIZE>, IndexErr> {
         let (page_addr, page_buf) = self.to_page_buffer();
 
-        b_tree
-            .file
-            .seek(SeekFrom::Start(page_addr.0))
-            .map_err(|_| IndexErr::FailedToWrite)?;
-        b_tree
-            .file
-            .write_all(&page_buf)
-            .map_err(|_| IndexErr::FailedToWrite)?;
+        b_tree.stream.seek(SeekFrom::Start(page_addr.0))?;
+        b_tree.stream.write_all(&page_buf)?;
 
         Ok(page_addr)
     }
@@ -266,60 +254,21 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
     }
 }
 
-// impl UUID {
-//     // const FLAG_MASK: u128 = 0xF000000000000000;
-//     // const ALLOC: u128 = 0x1000000000000000;
-//     pub fn from_u128(val: u64) -> Self {
-//         //TODO: this is to simulate a timestamp always being greater than zero for now
-//         // let val = Self::ALLOC | val as u128;
-//         Self(val as u128)
-//     }
-
-//     pub const fn from_sf_le_bytes(bytes: [u8; UUID::BYTE_SIZE]) -> Self {
-//         Self(<u128>::from_sf_le_bytes(bytes))
-//     }
-
-//     pub const fn to_bytes_le(&self) -> [u8; UUID::BYTE_SIZE] {
-//         self.0.to_bytes_le()
-//     }
-// }
-
-pub struct Lookup {
-    entries: HashMap<UUID, String>,
-}
-
-impl Lookup {
-    pub fn new() -> Self {
-        Self {
-            entries: HashMap::new(),
-        }
-    }
-
-    pub fn insert(&mut self, key: UUID) {
-        let val = format!("this is the key: {}", &key);
-        self.entries.insert(key, val);
-    }
-
-    pub fn get(&self, key: &UUID) -> Option<&String> {
-        self.entries.get(key)
-    }
-
-    pub fn remove(&mut self, key: &UUID) {
-        self.entries.remove(key);
-    }
-}
-
 #[derive(Debug)]
 pub enum IndexErr {
     EOF,
-    FailedToRead,
-    FailedToWrite,
-    FailedToOpen,
+    IoError(std::io::Error),
     EntryCountLargerThanPage,
     InvalidRecordUUID,
     AllocAttemptOnEmptyNode,
     UnknownNodeType,
     CannotSplitEmptyNode,
+}
+
+impl From<std::io::Error> for IndexErr {
+    fn from(value: std::io::Error) -> Self {
+        IndexErr::IoError(value)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -329,6 +278,7 @@ pub struct Branch<const PAGE_SIZE: usize, T: Read + Write + Seek> {
     last_page: PageAddr<PAGE_SIZE>,
     _stream: PhantomData<T>,
 }
+
 impl<const PAGE_SIZE: usize, T: Read + Write + Seek> Branch<PAGE_SIZE, T> {
     const ENTRY_SIZE: usize = (UUID::BYTE_SIZE + <u64>::BYTE_SIZE);
     const NULL_ENTRY: [u8; UUID::BYTE_SIZE + <u64>::BYTE_SIZE] =
@@ -573,7 +523,7 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> Node<PAGE_SIZE, T> {
 
 #[derive(Debug)]
 pub struct BTreeIndex<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> {
-    file: &'a mut T,
+    stream: &'a mut T,
     val_map: HashMap<UUID, u64>,
 }
 
@@ -586,33 +536,31 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
         let _ = Self::COMPTIME_SIZE_CHECK;
         let db_path = Path::new(path);
 
-        OpenOptions::new()
+        Ok(OpenOptions::new()
             .write(true)
             .read(true)
             .create(true)
-            .open(&db_path)
-            .map_err(|_| IndexErr::FailedToOpen)
+            .open(&db_path)?)
     }
     pub fn truncate_idx_file(path: &str) -> Result<File, IndexErr> {
         let _ = Self::COMPTIME_SIZE_CHECK;
         let db_path = Path::new(path);
 
-        OpenOptions::new()
+        Ok(OpenOptions::new()
             .write(true)
             .truncate(true)
             .read(true)
             .create(true)
-            .open(&db_path)
-            .map_err(|_| IndexErr::FailedToOpen)
+            .open(&db_path)?)
     }
 
     fn read_exact<const N: usize>(&mut self) -> Result<[u8; N], IndexErr> {
         let mut buf = [0u8; N];
-        self.file
+        self.stream
             .read_exact(&mut buf)
             .map_err(|err| match err.kind() {
                 std::io::ErrorKind::UnexpectedEof => IndexErr::EOF,
-                _ => IndexErr::FailedToRead,
+                _ => IndexErr::IoError(err),
             })?;
 
         Ok(buf)
@@ -621,7 +569,7 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
     pub fn new(idx_file: &'a mut T) -> Result<Self, IndexErr> {
         let _ = Self::COMPTIME_SIZE_CHECK;
         Ok(BTreeIndex {
-            file: idx_file,
+            stream: idx_file,
             val_map: HashMap::new(),
         })
     }
@@ -630,9 +578,7 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
         &mut self,
         page_addr: PageAddr<PAGE_SIZE>,
     ) -> Result<Node<PAGE_SIZE, T>, IndexErr> {
-        self.file
-            .seek(SeekFrom::Start(page_addr.0))
-            .map_err(|_| IndexErr::FailedToRead)?;
+        self.stream.seek(SeekFrom::Start(page_addr.0))?;
 
         let page_buf = match self.read_exact::<PAGE_SIZE>() {
             Ok(buf) => buf,
@@ -641,7 +587,6 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
         };
 
         let node = Node::from_page_buffer(page_addr, page_buf);
-        // eprintln!("{:#?}", node);
 
         node
     }
@@ -653,12 +598,8 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
         let (page_addr, page_buf) =
             <Node<PAGE_SIZE, T> as PageBuffer<PAGE_SIZE, T>>::to_page_buffer(node);
 
-        self.file
-            .seek(SeekFrom::Start(page_addr.0))
-            .map_err(|_| IndexErr::FailedToWrite)?;
-        self.file
-            .write_all(&page_buf)
-            .map_err(|_| IndexErr::FailedToWrite)?;
+        self.stream.seek(SeekFrom::Start(page_addr.0))?;
+        self.stream.write_all(&page_buf)?;
 
         Ok(page_addr)
     }

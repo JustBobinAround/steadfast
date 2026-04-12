@@ -1,13 +1,23 @@
-use std::fmt::Display;
 use std::marker::PhantomData;
 use std::time::Duration;
+use std::{fmt::Display, time::SystemTimeError};
 use steadfast_bytes::{
     AsArraySelf, ByteSize, BytesErr, FromBytes, ToBytes, TryReadBytes, TryWriteBytes, TypeCode,
     TypeCoded,
 };
-pub enum TimeErrSF {
+
+#[derive(Debug)]
+pub enum TimeErr {
     FailedToFetch,
+    SysTimeErr(SystemTimeError),
 }
+
+impl From<SystemTimeError> for TimeErr {
+    fn from(value: SystemTimeError) -> Self {
+        TimeErr::SysTimeErr(value)
+    }
+}
+
 pub trait TimeZone {}
 pub struct DateTime<TZ: TimeZone> {
     _tz: PhantomData<TZ>,
@@ -25,12 +35,10 @@ impl Display for UTC {
 }
 
 impl UTC {
-    pub fn new() -> Result<Self, TimeErrSF> {
+    pub fn now() -> Result<Self, TimeErr> {
         use std::time::{SystemTime, UNIX_EPOCH};
 
-        let time_since_unix_epoch = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| TimeErrSF::FailedToFetch)?;
+        let time_since_unix_epoch = SystemTime::now().duration_since(UNIX_EPOCH)?;
 
         Ok(UTC {
             time_since_unix_epoch,

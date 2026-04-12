@@ -2,15 +2,17 @@ use std::io::Read;
 
 #[derive(Debug)]
 pub enum RandErr {
-    FailedToOpenURandom,
-    FailedToReadURandom,
+    IoError(std::io::Error),
+}
+
+impl From<std::io::Error> for RandErr {
+    fn from(value: std::io::Error) -> Self {
+        RandErr::IoError(value)
+    }
 }
 
 fn entropy(b: &mut [u8]) -> Result<(), RandErr> {
-    std::fs::File::open("/dev/urandom")
-        .map_err(|_| RandErr::FailedToOpenURandom)?
-        .read_exact(b)
-        .map_err(|_| RandErr::FailedToReadURandom)?;
+    std::fs::File::open("/dev/urandom")?.read_exact(b)?;
     Ok(())
 }
 

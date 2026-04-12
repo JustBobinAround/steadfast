@@ -262,13 +262,10 @@ impl<R: Read> Parsable<R> for StatusCode {
             b"503" => Ok(Self::ServiceUnavailable), // "503"  ; Section 10.5.4:
             b"504" => Ok(Self::GatewayTimeout),     // "504"  ; Section 10.5.5:
             b"505" => Ok(Self::HTTPVersionNotSupported), // "505"  ; Section 10.5.6:
-            n => {
-                match u16::from_str_radix(str::from_utf8(n).map_err(|_| ParseErr::InvalidUTF8)?, 10)
-                {
-                    Ok(n) => Ok(Self::ExtensionCode(n)),
-                    Err(_) => Err(ParseErr::ExpectedStatusCode),
-                }
-            }
+            n => Ok(Self::ExtensionCode(u16::from_str_radix(
+                str::from_utf8(n)?,
+                10,
+            )?)),
         }
     }
 }

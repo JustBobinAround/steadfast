@@ -148,20 +148,13 @@ impl<R: Read> Parsable<R> for HTTPVersion {
         parser.skip_whitespace();
         parser.expect_str("HTTP/")?;
         let major_str = parser.consume_while(|p| p.is_digit());
-        let major =
-            u8::from_str_radix(major_str.as_str(), 10).map_err(|_| ParseErr::FailedToParseNum {
-                found: major_str,
-                radix: 10,
-            })?;
+        let major = u8::from_str_radix(major_str.as_str(), 10)?;
         parser.consume_or_err(|c| c == b'.')?;
         let minor_str = parser.consume_while(|p| p.is_digit());
         let minor = if minor_str.is_empty() {
             0
         } else {
-            u8::from_str_radix(minor_str.as_str(), 10).map_err(|_| ParseErr::FailedToParseNum {
-                found: minor_str,
-                radix: 10,
-            })?
+            u8::from_str_radix(minor_str.as_str(), 10)?
         };
 
         Ok(HTTPVersion { major, minor })

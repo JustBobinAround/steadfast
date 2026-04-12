@@ -20,6 +20,7 @@ impl From<std::io::Error> for FieldMapErr {
         FieldMapErr::IoError(err)
     }
 }
+
 impl From<BytesErr> for FieldMapErr {
     fn from(err: BytesErr) -> Self {
         FieldMapErr::BytesErr(err)
@@ -57,6 +58,7 @@ macro_rules! impl_trb_field_entry {
         }
     };
 }
+
 impl TryReadBytes for FieldEntry {
     impl_trb_field_entry!(try_read_bytes_le);
     impl_trb_field_entry!(try_read_bytes_be);

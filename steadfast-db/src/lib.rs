@@ -44,17 +44,17 @@ impl From<IndexErr> for DatabaseErr {
 }
 
 #[derive(Debug)]
-pub struct Database<'a> {
+pub struct Database<'a, T: Read + Write + Seek> {
     _db_file: &'a File,
     writer: BufWriter<&'a File>,
     reader: BufReader<&'a File>,
     file_size: usize,
     read_offset: usize,
-    index: BTreeIndex<'a, 4096>,
+    index: BTreeIndex<'a, 4096, T>,
     // field_map: FieldMap<'a, 4096>,
 }
 
-impl<'a> Database<'a> {
+impl<'a, T: Read + Write + Seek> Database<'a, T> {
     pub fn open_db_file(path: &str) -> Result<File, DatabaseErr> {
         let db_path = Path::new(path);
 
@@ -75,7 +75,7 @@ impl<'a> Database<'a> {
     pub fn new(
         db_file: &'a File,
         map_file: &'a mut File,
-        idx_file: &'a mut File,
+        idx_file: &'a mut T,
     ) -> Result<Self, DatabaseErr> {
         let writer = BufWriter::new(db_file);
         let reader = BufReader::new(db_file);

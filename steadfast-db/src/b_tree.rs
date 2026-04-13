@@ -1,3 +1,4 @@
+use crate::page_addr::PageAddr;
 use std::{
     collections::HashMap,
     fs::{File, OpenOptions},
@@ -5,20 +6,10 @@ use std::{
     marker::PhantomData,
     path::Path,
 };
-use steadfast_bytes::{ByteSize, FromBytes, ToBytes};
+use steadfast_bytes::{ByteSize, BytesErr, FromBytes, ToBytes};
 use steadfast_uuid::UUID;
 
 const RESERVED_PAGE_BYTES: usize = 16;
-
-#[repr(transparent)]
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PageAddr<const PAGE_SIZE: usize>(u64);
-impl<const PAGE_SIZE: usize> PageAddr<PAGE_SIZE> {
-    pub fn new(page_addr: u64) -> Self {
-        assert!(page_addr % PAGE_SIZE as u64 == 0);
-        Self(page_addr)
-    }
-}
 
 pub trait PageBuffer<const PAGE_SIZE: usize, T: Read + Write + Seek>: Sized {
     fn to_page_buffer(&self) -> (PageAddr<PAGE_SIZE>, [u8; PAGE_SIZE]);
@@ -47,7 +38,7 @@ pub trait PageBuffer<const PAGE_SIZE: usize, T: Read + Write + Seek>: Sized {
     ) -> Result<PageAddr<PAGE_SIZE>, IndexErr> {
         let (page_addr, page_buf) = self.to_page_buffer();
 
-        b_tree.stream.seek(SeekFrom::Start(page_addr.0))?;
+        b_tree.stream.seek(page_addr.into())?;
         b_tree.stream.write_all(&page_buf)?;
 
         Ok(page_addr)
@@ -68,7 +59,7 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
     fn to_page_buffer(&self) -> (PageAddr<PAGE_SIZE>, [u8; PAGE_SIZE]) {
         let mut page_buf = [0u8; PAGE_SIZE];
         page_buf[0] = Node::<PAGE_SIZE, T>::LEAF;
-        if let Some(PageAddr(next_leaf_addr)) = self.next_leaf_addr {
+        if let Some(next_leaf_addr) = self.next_leaf_addr {
             for (i, b) in next_leaf_addr.to_bytes_le().iter().enumerate() {
                 page_buf[<u64>::BYTE_SIZE + i] = *b;
             }
@@ -138,12 +129,12 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
     fn to_page_buffer(&self) -> (PageAddr<PAGE_SIZE>, [u8; PAGE_SIZE]) {
         let mut page_buf = [0u8; PAGE_SIZE];
         page_buf[0] = Node::<PAGE_SIZE, T>::BRANCH;
-        for (i, b) in self.last_page.0.to_bytes_le().iter().enumerate() {
+        for (i, b) in self.last_page.to_bytes_le().iter().enumerate() {
             page_buf[<u64>::BYTE_SIZE + i] = *b;
         }
         let entry_buf = &mut page_buf[RESERVED_PAGE_BYTES..];
 
-        for (i, (uuid, PageAddr(sub_node_addr))) in self.entries.iter().enumerate() {
+        for (i, (uuid, sub_node_addr)) in self.entries.iter().enumerate() {
             for (j, b) in uuid.to_bytes_le().iter().enumerate() {
                 entry_buf[(i * Self::ENTRY_SIZE) + j] = *b;
             }
@@ -163,7 +154,7 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
             .expect("Failed to pull last_page_buf from page_buf.");
         let last_page = PageAddr::new(<u64>::from_bytes_le(*last_page_buf));
         assert!(
-            last_page.0 > 0,
+            last_page.into_inner() > 0,
             "A page branch must always have a last_page."
         );
         let entries = page_buf[RESERVED_PAGE_BYTES..]
@@ -578,7 +569,7 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
         &mut self,
         page_addr: PageAddr<PAGE_SIZE>,
     ) -> Result<Node<PAGE_SIZE, T>, IndexErr> {
-        self.stream.seek(SeekFrom::Start(page_addr.0))?;
+        self.stream.seek(page_addr.into())?;
 
         let page_buf = match self.read_exact::<PAGE_SIZE>() {
             Ok(buf) => buf,
@@ -598,7 +589,7 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
         let (page_addr, page_buf) =
             <Node<PAGE_SIZE, T> as PageBuffer<PAGE_SIZE, T>>::to_page_buffer(node);
 
-        self.stream.seek(SeekFrom::Start(page_addr.0))?;
+        self.stream.seek(page_addr.into())?;
         self.stream.write_all(&page_buf)?;
 
         Ok(page_addr)
@@ -620,7 +611,7 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
             }
         }
 
-        if last_page > PageAddr(0) {
+        if last_page > PageAddr::new(0) {
             match self.read_node(last_page)? {
                 Node::None => Ok(None),
                 Node::Leaf(Leaf {
@@ -728,9 +719,9 @@ mod tests {
         idx.insert(PageAddr::new(0), UUID::from_u128(2), 1)
             .expect("oof");
         assert_eq!(
-            idx.read_node(PageAddr(0)).unwrap(),
+            idx.read_node(PageAddr::new(0)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(0),
+                page_addr: PageAddr::new(0),
                 entries: vec![UUID::from_u128(2)],
                 next_leaf_addr: None,
                 _stream: PhantomData
@@ -750,9 +741,9 @@ mod tests {
         }
 
         assert_eq!(
-            idx.read_node(PageAddr(0)).unwrap(),
+            idx.read_node(PageAddr::new(0)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(0),
+                page_addr: PageAddr::new(0),
                 entries: vec![UUID::from_u128(2), UUID::from_u128(4), UUID::from_u128(6),],
                 next_leaf_addr: None,
                 _stream: PhantomData
@@ -771,29 +762,29 @@ mod tests {
         }
 
         assert_eq!(
-            idx.read_node(PageAddr(0)).unwrap(),
+            idx.read_node(PageAddr::new(0)).unwrap(),
             Node::<64, _>::Branch(Branch {
-                page_addr: PageAddr(0),
-                entries: vec![(UUID::from_u128(6), PageAddr(128))],
-                last_page: PageAddr(64),
+                page_addr: PageAddr::new(0),
+                entries: vec![(UUID::from_u128(6), PageAddr::new(128))],
+                last_page: PageAddr::new(64),
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(64)).unwrap(),
+            idx.read_node(PageAddr::new(64)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(64),
+                page_addr: PageAddr::new(64),
                 entries: vec![UUID::from_u128(6), UUID::from_u128(8),],
                 next_leaf_addr: None,
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(128)).unwrap(),
+            idx.read_node(PageAddr::new(128)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(128),
+                page_addr: PageAddr::new(128),
                 entries: vec![UUID::from_u128(2), UUID::from_u128(4)],
-                next_leaf_addr: Some(PageAddr(64)),
+                next_leaf_addr: Some(PageAddr::new(64)),
                 _stream: PhantomData
             })
         );
@@ -814,29 +805,29 @@ mod tests {
             .expect("oof");
 
         assert_eq!(
-            idx.read_node(PageAddr(0)).unwrap(),
+            idx.read_node(PageAddr::new(0)).unwrap(),
             Node::<64, _>::Branch(Branch {
-                page_addr: PageAddr(0),
-                entries: vec![(UUID::from_u128(6), PageAddr(128))],
-                last_page: PageAddr(64),
+                page_addr: PageAddr::new(0),
+                entries: vec![(UUID::from_u128(6), PageAddr::new(128))],
+                last_page: PageAddr::new(64),
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(64)).unwrap(),
+            idx.read_node(PageAddr::new(64)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(64),
+                page_addr: PageAddr::new(64),
                 entries: vec![UUID::from_u128(6), UUID::from_u128(8), UUID::from_u128(10)],
                 next_leaf_addr: None,
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(128)).unwrap(),
+            idx.read_node(PageAddr::new(128)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(128),
+                page_addr: PageAddr::new(128),
                 entries: vec![UUID::from_u128(2), UUID::from_u128(4), UUID::from_u128(3)],
-                next_leaf_addr: Some(PageAddr(64)),
+                next_leaf_addr: Some(PageAddr::new(64)),
                 _stream: PhantomData
             })
         );
@@ -859,47 +850,47 @@ mod tests {
             .expect("oof");
 
         assert_eq!(
-            idx.read_node(PageAddr(0)).unwrap(),
+            idx.read_node(PageAddr::new(0)).unwrap(),
             Node::<64, _>::Branch(Branch {
-                page_addr: PageAddr(0),
-                entries: vec![(UUID::from_u128(6), PageAddr(128))],
-                last_page: PageAddr(64),
+                page_addr: PageAddr::new(0),
+                entries: vec![(UUID::from_u128(6), PageAddr::new(128))],
+                last_page: PageAddr::new(64),
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(64)).unwrap(),
+            idx.read_node(PageAddr::new(64)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(64),
+                page_addr: PageAddr::new(64),
                 entries: vec![UUID::from_u128(6), UUID::from_u128(8), UUID::from_u128(10)],
                 next_leaf_addr: None,
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(128)).unwrap(),
+            idx.read_node(PageAddr::new(128)).unwrap(),
             Node::<64, _>::Branch(Branch {
-                page_addr: PageAddr(128),
-                entries: vec![(UUID::from_u128(3), PageAddr(256))],
-                last_page: PageAddr(192),
+                page_addr: PageAddr::new(128),
+                entries: vec![(UUID::from_u128(3), PageAddr::new(256))],
+                last_page: PageAddr::new(192),
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(192)).unwrap(),
+            idx.read_node(PageAddr::new(192)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(192),
+                page_addr: PageAddr::new(192),
                 entries: vec![UUID::from_u128(3)],
-                next_leaf_addr: Some(PageAddr(64)),
+                next_leaf_addr: Some(PageAddr::new(64)),
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(256)).unwrap(),
+            idx.read_node(PageAddr::new(256)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(256),
+                page_addr: PageAddr::new(256),
                 entries: vec![UUID::from_u128(77), UUID::from_u128(2), UUID::from_u128(4),],
-                next_leaf_addr: Some(PageAddr(192)),
+                next_leaf_addr: Some(PageAddr::new(192)),
                 _stream: PhantomData
             })
         );
@@ -928,71 +919,71 @@ mod tests {
             .expect("oof");
 
         assert_eq!(
-            idx.read_node(PageAddr(0)).unwrap(),
+            idx.read_node(PageAddr::new(0)).unwrap(),
             Node::<64, _>::Branch(Branch {
-                page_addr: PageAddr(0),
-                entries: vec![(UUID::from_u128(6), PageAddr(128))],
-                last_page: PageAddr(64),
+                page_addr: PageAddr::new(0),
+                entries: vec![(UUID::from_u128(6), PageAddr::new(128))],
+                last_page: PageAddr::new(64),
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(64)).unwrap(),
+            idx.read_node(PageAddr::new(64)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(64),
+                page_addr: PageAddr::new(64),
                 entries: vec![UUID::from_u128(6), UUID::from_u128(8), UUID::from_u128(10)],
                 next_leaf_addr: None,
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(128)).unwrap(),
+            idx.read_node(PageAddr::new(128)).unwrap(),
             Node::<64, _>::Branch(Branch {
-                page_addr: PageAddr(128),
-                entries: vec![(UUID::from_u128(3), PageAddr(256))],
-                last_page: PageAddr(192),
+                page_addr: PageAddr::new(128),
+                entries: vec![(UUID::from_u128(3), PageAddr::new(256))],
+                last_page: PageAddr::new(192),
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(192)).unwrap(),
+            idx.read_node(PageAddr::new(192)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(192),
+                page_addr: PageAddr::new(192),
                 entries: vec![UUID::from_u128(3), UUID::from_u128(5)],
-                next_leaf_addr: Some(PageAddr(64)),
+                next_leaf_addr: Some(PageAddr::new(64)),
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(256)).unwrap(),
+            idx.read_node(PageAddr::new(256)).unwrap(),
             Node::<64, _>::Branch(Branch {
-                page_addr: PageAddr(256),
-                entries: vec![(UUID::from_u128(4), PageAddr(384))],
-                last_page: PageAddr(320),
+                page_addr: PageAddr::new(256),
+                entries: vec![(UUID::from_u128(4), PageAddr::new(384))],
+                last_page: PageAddr::new(320),
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(320)).unwrap(),
+            idx.read_node(PageAddr::new(320)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(320),
+                page_addr: PageAddr::new(320),
                 entries: vec![UUID::from_u128(4),],
-                next_leaf_addr: Some(PageAddr(192)),
+                next_leaf_addr: Some(PageAddr::new(192)),
                 _stream: PhantomData
             })
         );
         assert_eq!(
-            idx.read_node(PageAddr(384)).unwrap(),
+            idx.read_node(PageAddr::new(384)).unwrap(),
             Node::<64, _>::Leaf(Leaf {
-                page_addr: PageAddr(384),
+                page_addr: PageAddr::new(384),
                 entries: vec![UUID::from_u128(77), UUID::from_u128(88), UUID::from_u128(2)],
-                next_leaf_addr: Some(PageAddr(320)),
+                next_leaf_addr: Some(PageAddr::new(320)),
                 _stream: PhantomData
             })
         );
 
         assert_eq!(
-            idx.eq_search(PageAddr(0), 4).unwrap(),
+            idx.eq_search(PageAddr::new(0), 4).unwrap(),
             Some(UUID::from_u128(8))
         );
     }

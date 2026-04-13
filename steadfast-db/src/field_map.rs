@@ -1,3 +1,4 @@
+use crate::page_addr::PageAddr;
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
@@ -92,7 +93,7 @@ impl Default for FieldEntry {
 }
 
 #[derive(Debug)]
-pub struct FieldMap<'a, T: Read + Write + Seek> {
+pub struct FieldMap<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> {
     stream: &'a mut T,
     entries: Vec<FieldEntry>,
 }
@@ -101,25 +102,19 @@ macro_rules! impl_wbss_field_map {
     ($fn_name: ident) => {
         fn $fn_name<W: std::io::Write>(&self, stream: &mut W) -> Result<usize, BytesErr> {
             self.entries.$fn_name(stream)
-            // TypeCode::DynSize.as_u8().$trb_name(stream)?;
-            // TT::TYPE_CODE.as_u8().$trb_name(stream)?;
-            // self.len().$trb_name(stream)?;
-            // let mut bytes_written = 10;
-            // for item in self.entries {
-            //     bytes_written += item.$trb_name(stream)?;
-            // }
-            // Ok(bytes_written)
         }
     };
 }
 
-impl<'a, T: Read + Write + Seek> WriteByteStream<SizedBytes> for FieldMap<'a, T> {
+impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> WriteByteStream<SizedBytes>
+    for FieldMap<'a, PAGE_SIZE, T>
+{
     impl_wbss_field_map!(write_byte_stream_le);
     impl_wbss_field_map!(write_byte_stream_be);
     impl_wbss_field_map!(write_byte_stream_ne);
 }
 
-impl<'a, T: Read + Write + Seek> FieldMap<'a, T> {
+impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> FieldMap<'a, PAGE_SIZE, T> {
     /// Initial capacity of the field map for new files/buffers
     const INIT_CAPACITY: usize = 256;
     /// Allows FieldEntry::EMPTY_ADDR (aka 0) to be used as an empty entry marker
@@ -206,11 +201,11 @@ impl<'a, T: Read + Write + Seek> FieldMap<'a, T> {
         Ok(())
     }
 
-    pub fn get(&self, field_id: SHA256) -> Option<u64> {
+    pub fn get(&self, field_id: &SHA256) -> Option<PageAddr<PAGE_SIZE>> {
         let mut idx = field_id.inner_bytes()[0] as usize % self.entries.capacity();
         while idx < self.entries.len() && self.entries[idx].mem_addr != FieldEntry::EMPTY_ADDR {
-            if self.entries[idx].field_id == field_id {
-                return Some(self.entries[idx].mem_addr - Self::MEM_OFFSET);
+            if &self.entries[idx].field_id == field_id {
+                return Some(PageAddr::new(self.entries[idx].mem_addr - Self::MEM_OFFSET));
             }
             idx += 1;
         }
@@ -226,21 +221,21 @@ mod tests {
     #[test]
     fn test_mass_resize_and_get() {
         let mut c = std::io::Cursor::new(Vec::new());
-        let mut map = FieldMap::new(&mut c).unwrap();
+        let mut map = FieldMap::<64, _>::new(&mut c).unwrap();
 
         for i in 0..5000 {
             map.insert(
                 SHA256::from_raw([i as u32 * 8, 100, 100, 100, 100, 100, 100, i as u32]),
-                i + 1,
+                i * 64,
             )
             .unwrap();
         }
         c.set_position(0);
 
-        let map = FieldMap::new(&mut c).unwrap();
+        let map = FieldMap::<64, _>::new(&mut c).unwrap();
         assert_eq!(
-            Some(301),
-            map.get(SHA256::from_raw([
+            19200,
+            map.get(&SHA256::from_raw([
                 300 * 8,
                 100,
                 100,
@@ -250,6 +245,8 @@ mod tests {
                 100,
                 300
             ]))
+            .unwrap()
+            .into_inner()
         );
     }
 }

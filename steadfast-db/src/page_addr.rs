@@ -1,0 +1,32 @@
+use std::io::SeekFrom;
+use steadfast_bytes::ToBytes;
+#[repr(transparent)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PageAddr<const PAGE_SIZE: usize>(u64);
+impl<const PAGE_SIZE: usize> PageAddr<PAGE_SIZE> {
+    pub fn new(page_addr: u64) -> Self {
+        assert!(page_addr % PAGE_SIZE as u64 == 0);
+        Self(page_addr)
+    }
+    pub fn into_inner(self) -> u64 {
+        self.0
+    }
+}
+
+impl<const PAGE_SIZE: usize> Into<SeekFrom> for PageAddr<PAGE_SIZE> {
+    fn into(self) -> SeekFrom {
+        SeekFrom::Start(self.0)
+    }
+}
+
+impl<const PAGE_SIZE: usize> ToBytes<[u8; 8]> for PageAddr<PAGE_SIZE> {
+    fn to_bytes_le(&self) -> [u8; 8] {
+        self.0.to_le_bytes()
+    }
+    fn to_bytes_be(&self) -> [u8; 8] {
+        self.0.to_be_bytes()
+    }
+    fn to_bytes_ne(&self) -> [u8; 8] {
+        self.0.to_ne_bytes()
+    }
+}

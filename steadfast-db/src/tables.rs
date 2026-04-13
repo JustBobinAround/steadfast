@@ -18,13 +18,13 @@ pub trait STable: RBS<DynBytes> + WBS<DynBytes> + PartialOrd + PartialEq {
     const TYPE_HASH: SHA256;
 }
 
-struct TableRef<T: STable> {
+pub struct TableRef<T: STable> {
     sys_uuid: UUID,
     _table_ty: PhantomData<T>,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct TableRecord<T: STable> {
+pub struct TableRecord<T: STable> {
     sys_uuid: UUID,
     sys_created_on: UTC,
     sys_updated_on: UTC,
@@ -109,7 +109,7 @@ macro_rules! impl_rbsd_tr {
             let sys_created_on: UTC = sys_uuid.into();
             let sys_updated_on = <UTC>::$trb(stream, &mut inner_checksum)?;
             let inner_record = <T>::$fn_name(stream, &mut inner_checksum)?;
-            let record_byte_len = <usize>::$trb(stream, checksum)?;
+            let record_byte_len = <usize>::$fn_name(stream, checksum)?;
             *checksum += inner_checksum;
             BytesErr::compare_checksums(inner_checksum, record_byte_len)?;
             Ok(Self {
@@ -140,7 +140,7 @@ macro_rules! impl_wbsd_tr {
             record_len += T::TYPE_HASH.$trb(stream)?;
             record_len += self.sys_updated_on.$trb(stream)?;
             record_len += self.inner_record.$fn_name(stream)?;
-            record_len += record_len.$trb(stream)?;
+            record_len += record_len.$fn_name(stream)?;
             Ok(record_len)
         }
     };

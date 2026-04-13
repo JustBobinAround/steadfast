@@ -1,19 +1,22 @@
 mod address_entry;
 mod b_tree;
 mod field_map;
+mod page_addr;
 mod tables;
 pub use crate::{
     address_entry::AddressEntry,
     b_tree::{BTreeIndex, IndexErr},
     field_map::{FieldMap, FieldMapErr},
-    tables::STable,
+    page_addr::PageAddr,
+    tables::{STable, TableRecord},
 };
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::Path,
 };
-use steadfast_bytes::ToBytes;
+use steadfast_bytes::{BytesErr, ReadByteStream, WriteByteStream};
+
 // use steadfast_serializer::DataHolder;
 use steadfast_uuid::UUID;
 
@@ -29,11 +32,25 @@ pub enum DatabaseErr {
     FailedToDeserialize,
     IndexErr(IndexErr),
     FieldMapErr(FieldMapErr),
+    BytesErr(BytesErr),
+    IoError(std::io::Error),
 }
 
 impl From<FieldMapErr> for DatabaseErr {
     fn from(value: FieldMapErr) -> Self {
         Self::FieldMapErr(value)
+    }
+}
+
+impl From<BytesErr> for DatabaseErr {
+    fn from(value: BytesErr) -> Self {
+        Self::BytesErr(value)
+    }
+}
+
+impl From<std::io::Error> for DatabaseErr {
+    fn from(value: std::io::Error) -> Self {
+        Self::IoError(value)
     }
 }
 
@@ -44,17 +61,15 @@ impl From<IndexErr> for DatabaseErr {
 }
 
 #[derive(Debug)]
-pub struct Database<'a, T: Read + Write + Seek> {
-    _db_file: &'a File,
-    writer: BufWriter<&'a File>,
-    reader: BufReader<&'a File>,
+pub struct Database<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> {
+    db_file: &'a mut T,
     file_size: usize,
     read_offset: usize,
-    index: BTreeIndex<'a, 4096, T>,
-    // field_map: FieldMap<'a, 4096>,
+    index: BTreeIndex<'a, PAGE_SIZE, T>,
+    field_map: FieldMap<'a, PAGE_SIZE, T>,
 }
 
-impl<'a, T: Read + Write + Seek> Database<'a, T> {
+impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> Database<'a, PAGE_SIZE, T> {
     pub fn open_db_file(path: &str) -> Result<File, DatabaseErr> {
         let db_path = Path::new(path);
 
@@ -73,25 +88,50 @@ impl<'a, T: Read + Write + Seek> Database<'a, T> {
         Self::UUID_BSIZE + Self::DATA_LEN_BSIZE + Self::LAST_UPDATE_BSIZE;
 
     pub fn new(
-        db_file: &'a File,
-        map_file: &'a mut File,
+        db_file: &'a mut T,
+        map_file: &'a mut T,
         idx_file: &'a mut T,
     ) -> Result<Self, DatabaseErr> {
-        let writer = BufWriter::new(db_file);
-        let reader = BufReader::new(db_file);
         // let index = HashMap::new();
         let file_size = 0;
         let read_offset = 0;
 
         Ok(Database {
-            _db_file: db_file,
-            writer,
-            reader,
+            db_file,
             file_size,
             read_offset,
             index: BTreeIndex::new(idx_file)?, // index,
-                                               // field_map: FieldMap::new(map_file)?,
+            field_map: FieldMap::new(map_file)?,
         })
+    }
+
+    pub fn read_record<TT: STable>(
+        &mut self,
+        mem_addr: u64,
+    ) -> Result<TableRecord<TT>, DatabaseErr> {
+        self.db_file.seek(SeekFrom::Start(mem_addr))?;
+        let mut _checksum = 0;
+        Ok(TableRecord::<TT>::read_byte_stream_le(
+            self.db_file,
+            &mut _checksum,
+        )?)
+    }
+
+    pub fn index_record<TT: STable>(
+        &mut self,
+        mem_addr: u64,
+        tr: TableRecord<TT>,
+    ) -> Result<(), DatabaseErr> {
+        for (_field_name, field_id) in TableRecord::<TT>::indexed_fields() {
+            match self.field_map.get(field_id) {
+                Some(field_page_addr) => {
+                    self.index
+                        .insert(field_page_addr, *tr.sys_uuid(), todo!())?
+                }
+                None => todo!(),
+            }
+        }
+        Ok(())
     }
 }
 

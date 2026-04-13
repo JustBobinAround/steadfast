@@ -567,6 +567,7 @@ pub fn derive_to_db_bytes(items: TokenStream) -> TokenStream {
         },
     }
 }
+
 #[proc_macro_derive(InternalTableSF, attributes(indexed))]
 pub fn derive_internal_steadfast_table(items: TokenStream) -> TokenStream {
     let mut parser = TokenParser::new(items);
@@ -641,15 +642,28 @@ pub fn derive_internal_steadfast_table(items: TokenStream) -> TokenStream {
                         (mappings, list, count + 1)
                     },
                 );
-            let cmp_entries: String = data_struct
+            // "a" => self.a.cmp_or_none(val),
+            // "b" => self.b.cmp_or_none(val),
+            let cmp_fields: String = data_struct
                 .fields()
                 .iter()
-                .map(|(name, _field_data)| {
-                    format!("\"{}\" => Some(self.{}.cmp(&other.{})),", name, name, name)
+                .map(|(field_name, _)| {
+                    format!("\"{}\"=>self.{}.cmp_or_none(val),", field_name, field_name)
                 })
                 .collect();
+
             let zero_table_trait = format!(
-                r#"impl{} crate::tables::STable for {}{} {{
+                r#"impl{} crate::optional_ord::FieldOrd for {}{} {{
+                    fn cmp_with_field(&self, field_name: &str, val: &dyn std::any::Any) -> Option<std::cmp::Ordering> {{
+                        use crate::optional_ord::OptionalOrd;
+                        match field_name {{
+                            {}
+                            _ => None,
+                        }}
+                    }}
+                }}
+
+                    impl{} crate::tables::STable for {}{} {{
                     fn table_name() -> &'static str {{
                         "{}"
                     }}
@@ -670,15 +684,13 @@ pub fn derive_internal_steadfast_table(items: TokenStream) -> TokenStream {
                         &LIST
                     }}
                     
-                    fn cmp_field(&self, other: &Self, field_name: &str) -> Option<Ordering> {{
-                        match field_name {{
-                            {}
-                            _ => None
-                        }}
-                    }}
                     const TABLE_ID: SHA256 = {};
                     const TYPE_HASH: SHA256 = {};
                 }}"#,
+                traits,
+                data_struct.name(),
+                idents,
+                cmp_fields,
                 traits,
                 data_struct.name(),
                 idents,
@@ -687,7 +699,6 @@ pub fn derive_internal_steadfast_table(items: TokenStream) -> TokenStream {
                 mappings,
                 list_count,
                 list,
-                cmp_entries,
                 struct_type_hash,
                 struct_type_hash,
             );

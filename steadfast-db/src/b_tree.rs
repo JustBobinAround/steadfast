@@ -6,12 +6,12 @@ use std::{
     marker::PhantomData,
     path::Path,
 };
-use steadfast_bytes::{ByteSize, BytesErr, FromBytes, ToBytes};
+use steadfast_bytes::{ByteSize, FromBytes, ToBytes};
 use steadfast_uuid::UUID;
 
 const RESERVED_PAGE_BYTES: usize = 16;
 
-pub trait PageBuffer<const PAGE_SIZE: usize, T: Read + Write + Seek>: Sized {
+trait PageBuffer<const PAGE_SIZE: usize, T: Read + Write + Seek>: Sized {
     fn to_page_buffer(&self) -> (PageAddr<PAGE_SIZE>, [u8; PAGE_SIZE]);
     fn from_page_buffer(
         page_addr: PageAddr<PAGE_SIZE>,
@@ -32,6 +32,7 @@ pub trait PageBuffer<const PAGE_SIZE: usize, T: Read + Write + Seek>: Sized {
 
         Ok(PageAddr::new(file_len))
     }
+
     fn write_node(
         &mut self,
         b_tree: &mut BTreeIndex<PAGE_SIZE, T>,
@@ -53,9 +54,11 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
     fn first(&self) -> UUID {
         self.entries[0]
     }
+
     fn page_addr(&self) -> PageAddr<PAGE_SIZE> {
         self.page_addr
     }
+
     fn to_page_buffer(&self) -> (PageAddr<PAGE_SIZE>, [u8; PAGE_SIZE]) {
         let mut page_buf = [0u8; PAGE_SIZE];
         page_buf[0] = Node::<PAGE_SIZE, T>::LEAF;
@@ -74,6 +77,7 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
 
         (self.page_addr, page_buf)
     }
+
     fn from_page_buffer(
         page_addr: PageAddr<PAGE_SIZE>,
         page_buf: [u8; PAGE_SIZE],
@@ -113,6 +117,7 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
             _stream: PhantomData,
         })
     }
+
     fn set_page_addr(&mut self, page_addr: PageAddr<PAGE_SIZE>) {
         self.page_addr = page_addr;
     }
@@ -123,9 +128,11 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
     fn first(&self) -> UUID {
         self.entries[0].0
     }
+
     fn page_addr(&self) -> PageAddr<PAGE_SIZE> {
         self.page_addr
     }
+
     fn to_page_buffer(&self) -> (PageAddr<PAGE_SIZE>, [u8; PAGE_SIZE]) {
         let mut page_buf = [0u8; PAGE_SIZE];
         page_buf[0] = Node::<PAGE_SIZE, T>::BRANCH;
@@ -145,6 +152,7 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
 
         (self.page_addr, page_buf)
     }
+
     fn from_page_buffer(
         page_addr: PageAddr<PAGE_SIZE>,
         page_buf: [u8; PAGE_SIZE],
@@ -189,6 +197,7 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
             _stream: PhantomData,
         })
     }
+
     fn set_page_addr(&mut self, page_addr: PageAddr<PAGE_SIZE>) {
         self.page_addr = page_addr;
     }
@@ -203,6 +212,7 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
             Node::None => unreachable!("We should never be calling first from a none node."),
         }
     }
+
     fn page_addr(&self) -> PageAddr<PAGE_SIZE> {
         match self {
             Node::Branch(branch) => branch.page_addr(),
@@ -210,6 +220,7 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
             Node::None => unreachable!("None cannot have a page addr."),
         }
     }
+
     fn to_page_buffer(&self) -> (PageAddr<PAGE_SIZE>, [u8; PAGE_SIZE]) {
         match self {
             Node::Branch(branch) => branch.to_page_buffer(),
@@ -217,6 +228,7 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
             Node::None => unreachable!("We should never be converting empty node to bytes."),
         }
     }
+
     fn from_page_buffer(
         page_addr: PageAddr<PAGE_SIZE>,
         page_buf: [u8; PAGE_SIZE],
@@ -232,6 +244,7 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> PageBuffer<PAGE_SIZE, T>
             _ => Err(IndexErr::UnknownNodeType),
         }
     }
+
     fn set_page_addr(&mut self, page_addr: PageAddr<PAGE_SIZE>) {
         match self {
             Node::Branch(branch) => {
@@ -263,7 +276,7 @@ impl From<std::io::Error> for IndexErr {
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Branch<const PAGE_SIZE: usize, T: Read + Write + Seek> {
+struct Branch<const PAGE_SIZE: usize, T: Read + Write + Seek> {
     page_addr: PageAddr<PAGE_SIZE>,
     entries: Vec<(UUID, PageAddr<PAGE_SIZE>)>,
     last_page: PageAddr<PAGE_SIZE>,
@@ -275,7 +288,7 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> Branch<PAGE_SIZE, T> {
     const NULL_ENTRY: [u8; UUID::BYTE_SIZE + <u64>::BYTE_SIZE] =
         [0; UUID::BYTE_SIZE + <u64>::BYTE_SIZE];
     const MAX_ENTRIES: usize = (PAGE_SIZE - RESERVED_PAGE_BYTES) / Self::ENTRY_SIZE;
-    pub fn new(
+    fn new(
         b_tree: &mut BTreeIndex<PAGE_SIZE, T>,
         side_a: &mut impl PageBuffer<PAGE_SIZE, T>,
         side_b: &mut impl PageBuffer<PAGE_SIZE, T>,
@@ -293,18 +306,16 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> Branch<PAGE_SIZE, T> {
         new_branch.write_node(b_tree)?;
         Ok(new_branch)
     }
-    pub fn insert(
+
+    fn insert(
         &mut self,
         b_tree: &mut BTreeIndex<PAGE_SIZE, T>,
         uuid: UUID,
         val: u64,
     ) -> Result<Option<Branch<PAGE_SIZE, T>>, IndexErr> {
-        println!("hit 2");
         if self.entries.len() == self.entries.capacity() {
-            println!("hit 2.1");
             Ok(Some(self.split()?))
         } else {
-            println!("hit 2.3");
             for (sub_uuid, sub_page_addr) in &self.entries {
                 match b_tree.val_map.get(&sub_uuid) {
                     Some(sub_val) => {
@@ -319,43 +330,12 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> Branch<PAGE_SIZE, T> {
                 }
             }
 
-            println!("hit 2.5");
             let mut sub_node = b_tree.read_node(self.last_page)?;
             sub_node.insert(b_tree, self.last_page, uuid, val)
         }
     }
 
-    pub fn sorted_entry_insert(
-        &mut self,
-        b_tree: &BTreeIndex<PAGE_SIZE, T>,
-        max_uuid: UUID,
-        page_addr: PageAddr<PAGE_SIZE>,
-        new_leaf_addr: PageAddr<PAGE_SIZE>,
-    ) {
-        if let Some(val) = b_tree.val_map.get(&max_uuid) {
-            self.entries.push((max_uuid, page_addr));
-            for i in self.entries.len() - 1..=1 {
-                let (uuid_b, _sub_node_addr) = self.entries[i];
-                match b_tree.val_map.get(&uuid_b) {
-                    Some(val_b) => {
-                        if val_b > &val {
-                            self.entries.swap(i, i - 1);
-                        } else {
-                            break;
-                        }
-                    }
-                    None => {
-                        self.entries.swap(i, i - 1);
-                    }
-                }
-            }
-            if self.last_page == page_addr {
-                self.last_page = new_leaf_addr;
-            }
-        }
-    }
-
-    pub fn split(&mut self) -> Result<Branch<PAGE_SIZE, T>, IndexErr> {
+    fn split(&mut self) -> Result<Branch<PAGE_SIZE, T>, IndexErr> {
         let new_branch_entries = self.entries.split_off((self.entries.len() + 1) / 2);
 
         let new_branch_node = Branch::<PAGE_SIZE, T> {
@@ -371,7 +351,6 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> Branch<PAGE_SIZE, T> {
             .expect("Node should always have at least one entry during split");
 
         self.last_page = last_entry_addr;
-        // self.write_node(b_tree)?;
         Ok(new_branch_node)
     }
 }
@@ -395,17 +374,13 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> Leaf<PAGE_SIZE, T> {
         uuid: UUID,
         val: u64,
     ) -> Result<Option<Leaf<PAGE_SIZE, T>>, IndexErr> {
-        println!("hit 3");
         Ok(if self.entries.len() == self.entries.capacity() {
-            println!("hit 3.1");
             Some(self.split(b_tree)?)
         } else if self.entries.len() > 0 {
-            println!("hit 3.2");
             self.sorted_entry_insert(b_tree, uuid, val);
             self.write_node(b_tree)?;
             None
         } else {
-            println!("hit 3.3");
             self.entries.push(uuid);
             self.write_node(b_tree)?;
             None
@@ -418,16 +393,11 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> Leaf<PAGE_SIZE, T> {
         uuid: UUID,
         val: u64,
     ) {
-        println!("hit sorted insert");
         self.entries.push(uuid);
-        // println!("{:#?}", self);
-        println!("{:#?}", self.entries.len() - 1..=0);
         for i in (1..self.entries.len()).rev() {
-            println!("hit uuid_b");
             let uuid_b = self.entries[i - 1];
             match b_tree.val_map.get(&uuid_b) {
                 Some(val_b) => {
-                    println!("a:{}>{}", self.entries[i - 1], self.entries[i]);
                     if val_b > &val {
                         self.entries.swap(i, i - 1);
                     } else {
@@ -436,7 +406,6 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> Leaf<PAGE_SIZE, T> {
                 }
 
                 None => {
-                    println!("b:{}>{}", self.entries[i - 1], self.entries[i]);
                     self.entries.swap(i, i - 1);
                 }
             }
@@ -457,13 +426,12 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> Leaf<PAGE_SIZE, T> {
         };
 
         self.next_leaf_addr = Some(new_leaf_node.alloc_node(b_tree)?);
-        // self.write_node(b_tree)?;
         Ok(new_leaf_node)
     }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Node<const PAGE_SIZE: usize, T: Read + Write + Seek> {
+enum Node<const PAGE_SIZE: usize, T: Read + Write + Seek> {
     Branch(Branch<PAGE_SIZE, T>),
     Leaf(Leaf<PAGE_SIZE, T>),
     None,
@@ -474,20 +442,13 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> Node<PAGE_SIZE, T> {
     pub const BRANCH: u8 = 1;
     pub const LEAF: u8 = 2;
 
-    pub fn is_none(&self) -> bool {
-        match self {
-            Node::None => true,
-            _ => false,
-        }
-    }
-    pub fn insert(
+    fn insert(
         &mut self,
         b_tree: &mut BTreeIndex<PAGE_SIZE, T>,
         page_addr: PageAddr<PAGE_SIZE>,
         uuid: UUID,
         val: u64,
     ) -> Result<Option<Branch<PAGE_SIZE, T>>, IndexErr> {
-        println!("hit 1");
         match self {
             Node::Branch(branch) => match branch.insert(b_tree, uuid, val)? {
                 Some(ref mut new_branch) => {
@@ -504,7 +465,6 @@ impl<const PAGE_SIZE: usize, T: Read + Write + Seek> Node<PAGE_SIZE, T> {
                 None => Ok(None),
             },
             Node::None => {
-                println!("page_addr: {:#?}", page_addr);
                 b_tree.insert_from_none(page_addr, uuid)?;
                 Ok(None)
             }
@@ -523,6 +483,7 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
         PAGE_SIZE >= 64 && (PAGE_SIZE - 1 < (PAGE_SIZE ^ (PAGE_SIZE - 1))),
         "PAGE_SIZE must be greater than 64 and a power of 2."
     );
+
     pub fn open_idx_file(path: &str) -> Result<File, IndexErr> {
         let _ = Self::COMPTIME_SIZE_CHECK;
         let db_path = Path::new(path);
@@ -533,6 +494,7 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
             .create(true)
             .open(&db_path)?)
     }
+
     pub fn truncate_idx_file(path: &str) -> Result<File, IndexErr> {
         let _ = Self::COMPTIME_SIZE_CHECK;
         let db_path = Path::new(path);
@@ -543,6 +505,18 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
             .read(true)
             .create(true)
             .open(&db_path)?)
+    }
+
+    pub fn new(idx_file: &'a mut T) -> Result<Self, IndexErr> {
+        let _ = Self::COMPTIME_SIZE_CHECK;
+        Ok(BTreeIndex {
+            stream: idx_file,
+            val_map: HashMap::new(),
+        })
+    }
+
+    fn seek_last_page(&mut self) -> Result<PageAddr<PAGE_SIZE>, IndexErr> {
+        Ok(PageAddr::new(self.stream.seek(SeekFrom::End(0))?))
     }
 
     fn read_exact<const N: usize>(&mut self) -> Result<[u8; N], IndexErr> {
@@ -557,15 +531,7 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
         Ok(buf)
     }
 
-    pub fn new(idx_file: &'a mut T) -> Result<Self, IndexErr> {
-        let _ = Self::COMPTIME_SIZE_CHECK;
-        Ok(BTreeIndex {
-            stream: idx_file,
-            val_map: HashMap::new(),
-        })
-    }
-
-    pub fn read_node(
+    fn read_node(
         &mut self,
         page_addr: PageAddr<PAGE_SIZE>,
     ) -> Result<Node<PAGE_SIZE, T>, IndexErr> {
@@ -580,19 +546,6 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
         let node = Node::from_page_buffer(page_addr, page_buf);
 
         node
-    }
-
-    pub fn write_node(
-        &mut self,
-        node: &Node<PAGE_SIZE, T>,
-    ) -> Result<PageAddr<PAGE_SIZE>, IndexErr> {
-        let (page_addr, page_buf) =
-            <Node<PAGE_SIZE, T> as PageBuffer<PAGE_SIZE, T>>::to_page_buffer(node);
-
-        self.stream.seek(page_addr.into())?;
-        self.stream.write_all(&page_buf)?;
-
-        Ok(page_addr)
     }
 
     fn eq_search_branch(
@@ -665,12 +618,11 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
         }
     }
 
-    pub fn insert_from_none(
+    fn insert_from_none(
         &mut self,
         page_addr: PageAddr<PAGE_SIZE>,
         uuid: UUID,
     ) -> Result<(), IndexErr> {
-        println!("hit 4");
         // new node is dropped after write. No point in wasting mem
         let mut entries = Vec::with_capacity(1);
         entries.push(uuid);
@@ -693,11 +645,22 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> BTreeIndex<'a, PAGE_SIZ
         uuid: UUID,
         val: u64,
     ) -> Result<(), IndexErr> {
-        println!("hit 0:{:#?}", uuid);
         self.val_map.insert(uuid, val);
         let mut node = self.read_node(page_addr)?;
         node.insert(self, page_addr, uuid, val)?;
         Ok(())
+    }
+
+    pub fn insert_new_root(
+        &mut self,
+        uuid: UUID,
+        val: u64,
+    ) -> Result<PageAddr<PAGE_SIZE>, IndexErr> {
+        let last_page = self.seek_last_page()?;
+        self.val_map.insert(uuid, val);
+        let mut node = self.read_node(last_page)?;
+        node.insert(self, last_page, uuid, val)?;
+        Ok(last_page)
     }
 }
 
@@ -713,8 +676,6 @@ mod tests {
         for i in 1..8u128 {
             idx.val_map.insert(UUID::from_u128(i * 2), i as u64);
         }
-
-        // eprintln!("{:#?}", idx.eq_search(PageAddr::new(0), 512));
 
         idx.insert(PageAddr::new(0), UUID::from_u128(2), 1)
             .expect("oof");

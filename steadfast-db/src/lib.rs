@@ -1,8 +1,10 @@
 mod address_entry;
 mod b_tree;
 mod field_map;
+pub mod optional_ord;
 mod page_addr;
 mod tables;
+use crate::optional_ord::FieldOrd;
 pub use crate::{
     address_entry::AddressEntry,
     b_tree::{BTreeIndex, IndexErr},
@@ -11,11 +13,13 @@ pub use crate::{
     tables::{STable, TableRecord},
 };
 use std::{
+    any::Any,
+    cmp::Ordering,
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::Path,
 };
-use steadfast_bytes::{BytesErr, ReadByteStream, WriteByteStream};
+use steadfast_bytes::{ByteSize, BytesErr, ReadByteStream, WriteByteStream};
 
 // use steadfast_serializer::DataHolder;
 use steadfast_uuid::UUID;
@@ -128,10 +132,37 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek> Database<'a, PAGE_SIZE,
                     self.index
                         .insert(field_page_addr, *tr.sys_uuid(), todo!())?
                 }
-                None => todo!(),
+                None => {}
             }
         }
         Ok(())
+    }
+
+    pub fn fetch_first_record_eq<TT: STable>(
+        &mut self,
+        field_name: &str,
+        val: &dyn Any,
+    ) -> Result<TableRecord<TT>, DatabaseErr> {
+        const STRONG_TY_U64_OFFSET: i64 = -1 * (<u64>::BYTE_SIZE as i64 + 1);
+        let mut current_offset = self.db_file.seek(SeekFrom::End(0))?;
+        while current_offset > 0 {
+            current_offset = self.db_file.seek(SeekFrom::Current(STRONG_TY_U64_OFFSET))?;
+            let mut checksum = 0;
+            let tr_byte_len = <u64>::read_byte_stream_le(self.db_file, &mut checksum)?;
+            current_offset -= tr_byte_len + checksum as u64;
+            self.db_file.seek(SeekFrom::Start(current_offset))?;
+            checksum = 0;
+            match <TableRecord<TT>>::read_byte_stream_le(self.db_file, &mut checksum) {
+                Ok(tr) => match tr.cmp_with_field(field_name, val) {
+                    Some(Ordering::Equal) => {}
+                    _ => {}
+                },
+                Err(e) => {}
+            }
+            checksum = 0;
+        }
+
+        todo!()
     }
 }
 

@@ -1,5 +1,6 @@
 use std::io::SeekFrom;
-use steadfast_bytes::ToBytes;
+use steadfast_bytes::{FromBytes, ToBytes};
+
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PageAddr<const PAGE_SIZE: usize>(u64);
@@ -8,6 +9,7 @@ impl<const PAGE_SIZE: usize> PageAddr<PAGE_SIZE> {
         assert!(page_addr % PAGE_SIZE as u64 == 0);
         Self(page_addr)
     }
+
     pub fn into_inner(self) -> u64 {
         self.0
     }
@@ -28,5 +30,17 @@ impl<const PAGE_SIZE: usize> ToBytes<[u8; 8]> for PageAddr<PAGE_SIZE> {
     }
     fn to_bytes_ne(&self) -> [u8; 8] {
         self.0.to_ne_bytes()
+    }
+}
+
+impl<const PAGE_SIZE: usize> FromBytes<[u8; 8]> for PageAddr<PAGE_SIZE> {
+    fn from_bytes_le(bytes: [u8; 8]) -> Self {
+        Self::new(<u64>::from_le_bytes(bytes))
+    }
+    fn from_bytes_be(bytes: [u8; 8]) -> Self {
+        Self::new(<u64>::from_be_bytes(bytes))
+    }
+    fn from_bytes_ne(bytes: [u8; 8]) -> Self {
+        Self::new(<u64>::from_ne_bytes(bytes))
     }
 }

@@ -592,7 +592,7 @@ pub fn derive_internal_steadfast_table(items: TokenStream) -> TokenStream {
                 .collect();
             let struct_signature = data_struct.struct_signature();
             let struct_type_hash = format!(
-                "SHA256::from_raw([{}])",
+                "steadfast_crypt::SHA256::from_raw([{}])",
                 struct_signature
                     .inner_bytes()
                     .iter()
@@ -613,8 +613,8 @@ pub fn derive_internal_steadfast_table(items: TokenStream) -> TokenStream {
                         list.push_str("(\"");
                         mappings.push_str(field.0.as_str());
                         list.push_str(field.0.as_str());
-                        mappings.push_str("\"=>Some(SHA256::from_raw([");
-                        list.push_str("\",SHA256::from_raw([");
+                        mappings.push_str("\"=>Some(steadfast_crypt::SHA256::from_raw([");
+                        list.push_str("\",steadfast_crypt::SHA256::from_raw([");
                         mappings = field
                             .1
                             .type_id()
@@ -670,22 +670,22 @@ pub fn derive_internal_steadfast_table(items: TokenStream) -> TokenStream {
                     fn table_display_name() -> &'static str {{
                         "{}"
                     }}
-                    fn map_indexed_field_hash(field_name: &str) -> Option<SHA256> {{
+                    fn map_indexed_field_hash(field_name: &str) -> Option<steadfast_crypt::SHA256> {{
                         match field_name {{
                             {}
                             _ => None
                         }}
                     }}
-                    fn indexed_fields() -> &'static [(&'static str, SHA256)] {{
-                        const LIST: [(&'static str, SHA256); {}] = [
+                    fn indexed_fields() -> &'static [(&'static str, steadfast_crypt::SHA256)] {{
+                        const LIST: [(&'static str, steadfast_crypt::SHA256); {}] = [
                         {}
                         ];
 
                         &LIST
                     }}
                     
-                    const TABLE_ID: SHA256 = {};
-                    const TYPE_HASH: SHA256 = {};
+                    const TABLE_ID: steadfast_crypt::SHA256 = {};
+                    const TYPE_HASH: steadfast_crypt::SHA256 = {};
                 }}"#,
                 traits,
                 data_struct.name(),

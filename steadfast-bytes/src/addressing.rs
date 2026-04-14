@@ -1,5 +1,5 @@
+use super::{FromBytes, ToBytes};
 use std::io::SeekFrom;
-use steadfast_bytes::{FromBytes, ToBytes};
 
 #[repr(transparent)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -11,7 +11,7 @@ impl<const PAGE_SIZE: usize> PageAddr<PAGE_SIZE> {
     }
 
     pub fn from_mem_addr(mem_addr: u64) -> Self {
-        Self::new(mem_addr / PAGE_SIZE as u64)
+        Self::new((mem_addr / PAGE_SIZE as u64) * PAGE_SIZE as u64)
     }
 
     pub fn into_inner(self) -> u64 {

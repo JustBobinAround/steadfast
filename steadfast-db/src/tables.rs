@@ -17,6 +17,47 @@ pub trait STable: RBS<DynBytes> + WBS<DynBytes> + PartialOrd + PartialEq + Field
     const TYPE_HASH: SHA256;
 }
 
+macro_rules! impl_rbsd_tlh {
+    ($fn_name: ident, $trb: ident) => {
+        fn $fn_name<R: std::io::Read>(
+            stream: &mut R,
+            checksum: &mut usize,
+        ) -> Result<Self, steadfast_bytes::BytesErr> {
+            let mut inner_checksum = 0;
+            let prior_record_len = <usize>::$fn_name(stream, checksum)?;
+            TypeCode::DynSize.expect_from_stream_le(stream, &mut inner_checksum)?;
+            let sys_uuid = <UUID>::$trb(stream, &mut inner_checksum)?;
+            let table_id = <SHA256>::$trb(stream, &mut inner_checksum)?;
+            let type_hash = <SHA256>::$trb(stream, &mut inner_checksum)?;
+            let sys_created_on: UTC = sys_uuid.into();
+            let sys_updated_on = <UTC>::$trb(stream, &mut inner_checksum)?;
+            Ok(Self {
+                prior_record_len,
+                sys_uuid,
+                table_id,
+                type_hash,
+                sys_created_on,
+                sys_updated_on,
+            })
+        }
+    };
+}
+
+impl RBS<DynBytes> for TableLinkHeader {
+    impl_rbsd_tlh!(read_byte_stream_le, try_read_bytes_le);
+    impl_rbsd_tlh!(read_byte_stream_be, try_read_bytes_be);
+    impl_rbsd_tlh!(read_byte_stream_ne, try_read_bytes_ne);
+}
+
+pub(crate) struct TableLinkHeader {
+    pub prior_record_len: usize,
+    pub sys_uuid: UUID,
+    pub table_id: SHA256,
+    pub type_hash: SHA256,
+    pub sys_created_on: UTC,
+    pub sys_updated_on: UTC,
+}
+
 pub struct TableRef<T: STable> {
     sys_uuid: UUID,
     _table_ty: PhantomData<T>,
@@ -62,6 +103,15 @@ impl<T: STable> TableRecord<T> {
             sys_updated_on,
             inner_record,
         })
+    }
+
+    pub fn from_parts(tlh: TableLinkHeader, inner_record: T) -> Self {
+        Self {
+            sys_uuid: tlh.sys_uuid,
+            sys_created_on: tlh.sys_created_on,
+            sys_updated_on: tlh.sys_updated_on,
+            inner_record,
+        }
     }
 }
 

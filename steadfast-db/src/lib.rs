@@ -192,7 +192,7 @@ impl<'a, const PAGE_SIZE: usize, T: Read + Write + Seek + std::fmt::Debug>
                 );
                 // [[[u64]tlh][inner_record]][[[u64]tlh][inner_record]]
                 //   ^------------------------------------------------|
-                tr_byte_len = 0 - (checksum + tlh.prior_record_len + <u64>::BYTE_SIZE + 1) as i64;
+                tr_byte_len = 0 - (checksum + tlh.prior_record_len) as i64;
                 records.push(TableRecord::<TT>::from_parts(tlh, inner_record));
             } else {
                 eprintln!("huh");
@@ -234,6 +234,7 @@ mod tests {
         let mut idx_file = Cursor::new(Vec::new());
         let mut map_file = Cursor::new(Vec::new());
 
+        eprintln!("{:#?}", db_file);
         let mut db = Database::<64, _>::new(&mut db_file, &mut map_file, &mut idx_file).unwrap();
         let records: Vec<TableRecord<TestStruct>> = db.fetch_records_eq("some_field", &42).unwrap();
         assert_eq!(records[0], tra);
